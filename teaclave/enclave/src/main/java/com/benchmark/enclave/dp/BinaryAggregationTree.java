@@ -11,6 +11,7 @@ public final class BinaryAggregationTree {
     private final double[] tree;
     private final int height;
     private final int numLeaves;
+    private final int maxValues;
     private double curPrivateSum;
 
     public BinaryAggregationTree(int numberOfValues, double sigma) {
@@ -19,6 +20,7 @@ public final class BinaryAggregationTree {
         }
         this.height = computeHeight(numberOfValues);
         this.numLeaves = 1 << this.height;
+        this.maxValues = numberOfValues;
         this.tree = initialiseTree(sigma);
         this.curPrivateSum = 0.0;
     }
@@ -28,7 +30,7 @@ public final class BinaryAggregationTree {
     }
 
     public double addToTree(int index, double value) {
-        if (index < 0 || index >= numLeaves) {
+        if (index < 0 || index >= maxValues) {
             throw new IllegalArgumentException("index out of range for tree: " + index);
         }
 

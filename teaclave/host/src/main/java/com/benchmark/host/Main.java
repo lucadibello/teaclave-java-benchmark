@@ -21,8 +21,8 @@ public final class Main {
     public static void main(String[] args) throws Exception {
         EnclaveType enclaveType = resolveEnclaveType(args);
         double sigma = resolveSigma();
-        int[] weakScales = resolveScaleFactors(ENV_WEAK_SCALES, new int[]{1, 2, 4, 8});
-        int[] strongScales = resolveScaleFactors(ENV_STRONG_SCALES, new int[]{1, 2, 4, 8});
+        int[] weakScales = resolveScaleFactors(ENV_WEAK_SCALES, new int[]{1, 2, 4, 8, 16});
+        int[] strongScales = resolveScaleFactors(ENV_STRONG_SCALES, new int[]{1, 2, 4, 8, 16});
 
         Enclave enclave = EnclaveFactory.create(enclaveType);
         Iterator<Service> services = enclave.load(Service.class);

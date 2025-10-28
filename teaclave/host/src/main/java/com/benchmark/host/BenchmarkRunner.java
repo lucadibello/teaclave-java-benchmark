@@ -112,7 +112,11 @@ final class BenchmarkRunner {
         long start = System.nanoTime();
         double lastResult = 0.0;
         for (int i = 0; i < iterations; i++) {
-            lastResult = service.runBinaryAggregation(dataset, sigma);
+            service.initBinaryAggregation(dataset.length, sigma);
+            for (double value : dataset) {
+                lastResult = service.addToBinaryAggregation(value);
+            }
+            lastResult = service.getBinaryAggregationSum();
             perturbDataset(dataset);
         }
         long duration = System.nanoTime() - start;
@@ -126,7 +130,11 @@ final class BenchmarkRunner {
     private double executeStrongIteration(double[][] slices, double sigma) {
         double last = 0.0;
         for (double[] slice : slices) {
-            last = service.runBinaryAggregation(slice, sigma);
+            service.initBinaryAggregation(slice.length, sigma);
+            for (double value : slice) {
+                last = service.addToBinaryAggregation(value);
+            }
+            last = service.getBinaryAggregationSum();
             perturbDataset(slice);
         }
         if (Double.isNaN(last)) {

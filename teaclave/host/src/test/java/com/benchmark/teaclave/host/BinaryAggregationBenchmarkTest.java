@@ -42,7 +42,12 @@ class BinaryAggregationBenchmarkTest {
     void aggregationMatchesSumWhenSigmaIsZero() {
         double[] data = createDataset(1024);
         double expected = plainSum(data);
-        double actual = service.runBinaryAggregation(data, 0.0);
+        service.initBinaryAggregation(data.length, 0.0);
+        double actual = 0.0;
+        for (double value : data) {
+            actual = service.addToBinaryAggregation(value);
+        }
+        actual = service.getBinaryAggregationSum();
         Assertions.assertEquals(expected, actual, 1e-6, "Private sum should equal real sum without noise");
     }
 
