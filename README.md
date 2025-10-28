@@ -114,9 +114,3 @@ java -cp ... com.benchmark.teaclave.host.Main > benchmark-results.json
 ```
 
 The summary format is line-oriented JSON that can be imported into Python (pandas), R, gnuplot, or any other tooling to build charts.
-
-## Next Steps
-
-- Switch `TEACLAVE_BENCH_ENCLAVE_TYPE` to `TEE_SDK` and deploy on SGX hardware for realistic enclave costs.
-- Emit structured JSON/CSV files from the host if you prefer machine-parsable artefacts over stdout logs.
-- Experiment with alternative noise schedules or aggregation strategies by extending the enclave module while keeping the host harness intact.
