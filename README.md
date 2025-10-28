@@ -10,6 +10,21 @@ This project demonstrates an end-to-end Apache Teaclave Java SDK application tha
 
 The default build targets the Teaclave SDK mock enclave for rapid iteration, and can be switched to hardware-backed enclaves without changing the benchmark code.
 
+The repository ships with a pre-configured VS Code devcontainer (`.devcontainer/`) plus a `go-task` automation (`taskfile.yml`). Opening the project in VS Code or running `task devcontainer` provisions every dependency needed to build and run the benchmark from a clean machine.
+
+### go-task entrypoints
+
+If you are not using VS Code you can still bootstrap the containerised environment via `go-task`. The following helpers are defined in `taskfile.yml` (run `task -l` to see them on your machine):
+
+| Task | Description |
+|------|-------------|
+| `task devcontainer` | Build, start, and attach to the devcontainer (composite of the tasks below). |
+| `task devcontainer-build` | Build the container image for this workspace. |
+| `task devcontainer-up` | Start or reuse the devcontainer without attaching. |
+| `task devcontainer-attach` | Exec into the running devcontainer (drops you into a shell). |
+| `task devcontainer-down` | Stop and remove the container plus volumes. |
+| `task devcontainer-recreate` | Tear down and rebuild the devcontainer from scratch. |
+
 ## Differential Privacy Aggregation
 
 The enclave module adapts the `BinaryAggregationTreeBase` algorithm to a Teaclave friendly implementation:
