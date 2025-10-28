@@ -5,7 +5,7 @@ dotenv: [".env"]
 vars:
     WORKSPACE: .
     SESSION: dev
-    CONTAINER_NAME: gramine-java-sgx
+    CONTAINER_NAME: teaclave-java-benchmark
 
 tasks:
     devcontainer:
