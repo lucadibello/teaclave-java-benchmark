@@ -18,18 +18,52 @@ The host benchmark proceeds in three steps:
 2. **Weak scaling** – Increase the number of worker threads while keeping the per-thread workload fixed to observe aggregate growth.
 3. **Strong scaling** – Increase the number of worker threads while keeping the total workload fixed to observe how latency shrinks.
 
-Every run ends with a JSON summary like:
+## Results
+
+- CPU: Intel(R) Xeon(R) Gold 5315Y @ 3.20 GHz
+- SGX2 enclave (TEE SDK execution mode)
+
+The benchmark calibrated to a 1024-element workload at 0.5 ms per batch before
+running strong and weak scaling passes. All metrics below stem from `data/benchmark_results.json`;
+plots are generated with `scripts/generate_plots.py`.
+
+### Strong scaling
+
+Throughput rises from ~10 kops/s with a single client to ~58 kops/s at 16 clients,
+after which it flattens. The 8-client setup achieves a 5x speedup ($\approx$ 63%
+efficiency). Pushing to 32 clients provides no benefit, as SGX scheduling overhead
+dominates once the enclave is oversubscribed.
+
+![Strong scaling throughput](results/strong_throughput.png)
+
+The speedup and efficiency plots show the same trend: performance scales well up
+to 8 clients, but degrades beyond that as the enclave becomes saturated.
+
+![Strong scaling speedup and efficiency](results/strong_speedup_efficiency.png)
+
+### Weak scaling
+
+Under weak scaling, the system shows clear linear gains. Aggregate throughput
+grows from ~9.7 kops/s with one client to ~1.68 Mops/s at 32 clients. This
+improvement comes from cache warm-up effects and batched ECALLs, which lower
+the per-request cost.
+
+![Weak scaling throughput](results/weak_throughput.png)
+
+Efficiency peaks above 5x relative to the single-client
+baseline, indicating that the workload benefits significantly from having more
+parallel submissions when the total work increases.
+
+![Weak scaling speedup and efficiency](results/weak_speedup_efficiency.png)
+
+### Reproducing the figures
 
 ```
-== Benchmark Summary ==
-{
-  "calibration": { ... },
-  "weakScaling": [ {"threads": 1, ...}, ... ],
-  "strongScaling": [ {"threads": 1, ...}, ... ]
-}
+python3 -m venv .venv
+source .venv/bin/activate
+pip3 install --upgrade pip matplotlib numpy
+python3 scripts/generate_plots.py
 ```
-
-Each `avgTimeMillis` entry is the average wall-clock time (including enclave ECALL overhead) to initialise the tree and stream a full batch of inserts using a configurable pool of worker threads.
 
 ## Getting Started
 
