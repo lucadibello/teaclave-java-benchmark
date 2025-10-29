@@ -20,7 +20,6 @@ public final class Main {
 
     public static void main(String[] args) throws Exception {
         EnclaveType enclaveType = resolveEnclaveType(args);
-        System.out.println("Benchmark execution mode: " + enclaveType);
         double sigma = resolveSigma();
         int[] weakThreadCounts = resolveThreadArray(ENV_WEAK_THREADS, new int[]{1, 2, 4, 8, 16, 32});
         int[] strongThreadCounts = resolveThreadArray(ENV_STRONG_THREADS, new int[]{1, 2, 4, 8, 16, 32});
@@ -29,7 +28,6 @@ public final class Main {
                 Arrays.stream(strongThreadCounts).min().orElse(Integer.MAX_VALUE)));
         // Use the smallest configured thread count to derive the baseline per-thread workload.
         int nativeParallelism = resolveNativeParallelism(enclaveType);
-        System.out.println("Using " + nativeParallelism + " native threads!");
 
         Enclave enclave = EnclaveFactory.create(enclaveType);
         Iterator<Service> services = enclave.load(Service.class);
