@@ -62,7 +62,8 @@ class BinaryAggregationBenchmarkTest {
         var weakResults = runner.runWeakScaling(workload, weakThreads, 3);
         var strongResults = runner.runStrongScaling(workload, strongThreads, 3);
         BenchmarkRunner.BenchmarkSummary summary =
-                new BenchmarkRunner.BenchmarkSummary(workload, weakResults, strongResults);
+                new BenchmarkRunner.BenchmarkSummary(settings, EnclaveType.MOCK_IN_JVM.name(),
+                        workload, weakThreads, weakResults, strongThreads, strongResults);
 
         Assertions.assertEquals(weakThreads.length, weakResults.size());
         Assertions.assertEquals(strongThreads.length, strongResults.size());

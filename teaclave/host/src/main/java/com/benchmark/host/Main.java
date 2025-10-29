@@ -20,6 +20,7 @@ public final class Main {
 
     public static void main(String[] args) throws Exception {
         EnclaveType enclaveType = resolveEnclaveType(args);
+        System.out.println("Benchmark execution mode: " + enclaveType);
         double sigma = resolveSigma();
         int[] weakThreadCounts = resolveThreadArray(ENV_WEAK_THREADS, new int[]{1, 2, 4, 8, 16, 32});
         int[] strongThreadCounts = resolveThreadArray(ENV_STRONG_THREADS, new int[]{1, 2, 4, 8, 16, 32});
@@ -46,7 +47,8 @@ public final class Main {
             var strongResults =
                     runner.runStrongScaling(workload, strongThreadCounts, calibrationSettings.getMeasureIterations());
             BenchmarkRunner.BenchmarkSummary summary =
-                    new BenchmarkRunner.BenchmarkSummary(workload, weakResults, strongResults);
+                    new BenchmarkRunner.BenchmarkSummary(calibrationSettings, enclaveType.name(), workload,
+                            weakThreadCounts, weakResults, strongThreadCounts, strongResults);
 
             System.out.println("== Benchmark Summary ==");
             System.out.println(summary.toPrettyString());

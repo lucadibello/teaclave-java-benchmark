@@ -400,14 +400,26 @@ final class BenchmarkRunner {
     }
 
     static final class BenchmarkSummary {
+        private final CalibrationSettings settings;
+        private final String executionMode;
         private final CalibratedWorkload calibration;
+        private final int[] weakThreadCounts;
+        private final int[] strongThreadCounts;
         private final List<WeakScalingResult> weakScalingResults;
         private final List<StrongScalingResult> strongScalingResults;
 
-        BenchmarkSummary(CalibratedWorkload calibration,
+        BenchmarkSummary(CalibrationSettings settings,
+                         String executionMode,
+                         CalibratedWorkload calibration,
+                         int[] weakThreadCounts,
                          List<WeakScalingResult> weakScalingResults,
+                         int[] strongThreadCounts,
                          List<StrongScalingResult> strongScalingResults) {
+            this.settings = settings;
+            this.executionMode = executionMode;
             this.calibration = calibration;
+            this.weakThreadCounts = Arrays.copyOf(weakThreadCounts, weakThreadCounts.length);
+            this.strongThreadCounts = Arrays.copyOf(strongThreadCounts, strongThreadCounts.length);
             this.weakScalingResults = Collections.unmodifiableList(new ArrayList<>(weakScalingResults));
             this.strongScalingResults = Collections.unmodifiableList(new ArrayList<>(strongScalingResults));
         }
@@ -427,6 +439,13 @@ final class BenchmarkRunner {
         String toPrettyString() {
             StringBuilder sb = new StringBuilder();
             sb.append("{\n");
+            sb.append("  \"settings\": {\n");
+            sb.append(String.format(Locale.US,
+                    "    \"sigma\": %.6f,%n    \"initialSize\": %d,%n    \"maxSize\": %d,%n    \"targetMillis\": %.3f,%n    \"growthFactor\": %d,%n    \"warmupIterations\": %d,%n    \"measureIterations\": %d,%n    \"weakThreadCounts\": %s,%n    \"strongThreadCounts\": %s,%n    \"executionMode\": \"%s\"%n",
+                    settings.getSigma(), settings.getInitialSize(), settings.getMaxSize(), settings.getTargetMillis(),
+                    settings.getGrowthFactor(), settings.getWarmupIterations(), settings.getMeasureIterations(),
+                    formatIntArray(weakThreadCounts), formatIntArray(strongThreadCounts), executionMode));
+            sb.append("  },\n");
             sb.append("  \"calibration\": {\n");
             sb.append(String.format(Locale.US,
                     "    \"dataSize\": %d,%n    \"sigma\": %.6f,%n    \"iterations\": %d,%n    \"avgTimeMillis\": %.3f,%n    \"attempts\": %d,%n    \"threads\": %d%n",
@@ -460,6 +479,18 @@ final class BenchmarkRunner {
             sb.append("  ]\n");
             sb.append("}");
             return sb.toString();
+        }
+
+        private static String formatIntArray(int[] values) {
+            StringBuilder builder = new StringBuilder("[");
+            for (int i = 0; i < values.length; i++) {
+                builder.append(values[i]);
+                if (i < values.length - 1) {
+                    builder.append(",");
+                }
+            }
+            builder.append("]");
+            return builder.toString();
         }
     }
 
