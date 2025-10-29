@@ -12,8 +12,8 @@ public final class Main {
 
     private static final String ENV_ENCLAVE_TYPE = "TEACLAVE_BENCH_ENCLAVE_TYPE";
     private static final String ENV_SIGMA = "TEACLAVE_BENCH_SIGMA";
-    private static final String ENV_WEAK_SCALES = "TEACLAVE_BENCH_WEAK_SCALES";
-    private static final String ENV_STRONG_SCALES = "TEACLAVE_BENCH_STRONG_SCALES";
+    private static final String ENV_WEAK_THREADS = "TEACLAVE_BENCH_WEAK_SCALES";
+    private static final String ENV_STRONG_THREADS = "TEACLAVE_BENCH_STRONG_SCALES";
 
     private Main() {
     }
@@ -21,8 +21,12 @@ public final class Main {
     public static void main(String[] args) throws Exception {
         EnclaveType enclaveType = resolveEnclaveType(args);
         double sigma = resolveSigma();
-        int[] weakScales = resolveScaleFactors(ENV_WEAK_SCALES, new int[]{1, 2, 4, 8, 16});
-        int[] strongScales = resolveScaleFactors(ENV_STRONG_SCALES, new int[]{1, 2, 4, 8, 16});
+        int[] weakThreadCounts = resolveThreadArray(ENV_WEAK_THREADS, new int[]{1, 2, 4, 8, 16, 32});
+        int[] strongThreadCounts = resolveThreadArray(ENV_STRONG_THREADS, new int[]{1, 2, 4, 8, 16, 32});
+        int calibrationThreads = Math.max(1, Math.min(
+                Arrays.stream(weakThreadCounts).min().orElse(Integer.MAX_VALUE),
+                Arrays.stream(strongThreadCounts).min().orElse(Integer.MAX_VALUE)));
+        // Use the smallest configured thread count to derive the baseline per-thread workload.
 
         Enclave enclave = EnclaveFactory.create(enclaveType);
         Iterator<Service> services = enclave.load(Service.class);
@@ -35,9 +39,12 @@ public final class Main {
             BenchmarkRunner.CalibrationSettings calibrationSettings =
                     BenchmarkRunner.CalibrationSettings.fromEnvironment(sigma);
             BenchmarkRunner runner = new BenchmarkRunner(service);
-            BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(calibrationSettings);
-            var weakResults = runner.runWeakScaling(workload, weakScales, calibrationSettings.getMeasureIterations());
-            var strongResults = runner.runStrongScaling(workload, strongScales, calibrationSettings.getMeasureIterations());
+            BenchmarkRunner.CalibratedWorkload workload =
+                    runner.calibrate(calibrationSettings, calibrationThreads);
+            var weakResults =
+                    runner.runWeakScaling(workload, weakThreadCounts, calibrationSettings.getMeasureIterations());
+            var strongResults =
+                    runner.runStrongScaling(workload, strongThreadCounts, calibrationSettings.getMeasureIterations());
             BenchmarkRunner.BenchmarkSummary summary =
                     new BenchmarkRunner.BenchmarkSummary(workload, weakResults, strongResults);
 
@@ -71,7 +78,7 @@ public final class Main {
         }
     }
 
-    private static int[] resolveScaleFactors(String envKey, int[] defaults) {
+    private static int[] resolveThreadArray(String envKey, int[] defaults) {
         String raw = System.getenv(envKey);
         if (raw == null || raw.isEmpty()) {
             return defaults;
@@ -81,7 +88,7 @@ public final class Main {
         for (int i = 0; i < tokens.length; i++) {
             String token = tokens[i].trim();
             if (token.isEmpty()) {
-                throw new IllegalArgumentException("Empty scale token in " + envKey + "=" + raw);
+                throw new IllegalArgumentException("Empty thread token in " + envKey + "=" + raw);
             }
             try {
                 values[i] = Integer.parseInt(token);
@@ -89,7 +96,7 @@ public final class Main {
                 throw new IllegalArgumentException("Invalid integer '" + token + "' in " + envKey + "=" + raw, nfe);
             }
             if (values[i] <= 0) {
-                throw new IllegalArgumentException("Scale factors must be positive: " + Arrays.toString(values));
+                throw new IllegalArgumentException("Thread counts must be positive: " + Arrays.toString(values));
             }
         }
         return values;

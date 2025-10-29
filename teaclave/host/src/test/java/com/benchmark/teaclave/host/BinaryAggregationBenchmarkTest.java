@@ -56,16 +56,16 @@ class BinaryAggregationBenchmarkTest {
         BenchmarkRunner runner = new BenchmarkRunner(service, new Random(456L));
         BenchmarkRunner.CalibrationSettings settings =
                 new BenchmarkRunner.CalibrationSettings(32, 1024, 5.0, 2, 1, 3, 0.25);
-        BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings);
-        int[] weakScales = new int[]{1, 2, 4};
-        int[] strongScales = new int[]{1, 2, 4};
-        var weakResults = runner.runWeakScaling(workload, weakScales, 3);
-        var strongResults = runner.runStrongScaling(workload, strongScales, 3);
+        int[] weakThreads = new int[]{1, 2, 4};
+        int[] strongThreads = new int[]{1, 2, 4};
+        BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
+        var weakResults = runner.runWeakScaling(workload, weakThreads, 3);
+        var strongResults = runner.runStrongScaling(workload, strongThreads, 3);
         BenchmarkRunner.BenchmarkSummary summary =
                 new BenchmarkRunner.BenchmarkSummary(workload, weakResults, strongResults);
 
-        Assertions.assertEquals(weakScales.length, weakResults.size());
-        Assertions.assertEquals(strongScales.length, strongResults.size());
+        Assertions.assertEquals(weakThreads.length, weakResults.size());
+        Assertions.assertEquals(strongThreads.length, strongResults.size());
         Assertions.assertTrue(summary.toPrettyString().contains("\"weakScaling\""));
         weakResults.forEach(result -> Assertions.assertTrue(
                 Double.isFinite(result.getAverageMillis()),
@@ -80,7 +80,7 @@ class BinaryAggregationBenchmarkTest {
         BenchmarkRunner runner = new BenchmarkRunner(service, new Random(123L));
         BenchmarkRunner.CalibrationSettings settings =
                 new BenchmarkRunner.CalibrationSettings(64, 4096, 10.0, 2, 1, 2, 0.0);
-        BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings);
+        BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
         Assertions.assertTrue(workload.getDataSize() >= 64, "Calibrated data size should grow from initial guess");
         Assertions.assertTrue(workload.getAverageMillis() >= 0.0, "Average millis should be non-negative");
     }

@@ -8,6 +8,13 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
 
 final class BenchmarkRunner {
 
@@ -25,7 +32,7 @@ final class BenchmarkRunner {
         this.random = random;
     }
 
-    CalibratedWorkload calibrate(CalibrationSettings settings) {
+    CalibratedWorkload calibrate(CalibrationSettings settings, int threadCount) {
         int size = settings.getInitialSize();
         int attempts = 0;
         double averageMillis = 0.0;
@@ -33,7 +40,7 @@ final class BenchmarkRunner {
 
         while (size <= settings.getMaxSize()) {
             averageMillis = measureAverageMillis(dataset, settings.getSigma(), settings.getWarmupIterations(),
-                    settings.getMeasureIterations());
+                    settings.getMeasureIterations(), threadCount);
             attempts++;
             if (averageMillis >= settings.getTargetMillis()) {
                 break;
@@ -47,77 +54,52 @@ final class BenchmarkRunner {
         }
 
         return new CalibratedWorkload(size, settings.getSigma(), settings.getMeasureIterations(),
-                averageMillis, attempts);
+                averageMillis, attempts, threadCount);
     }
 
-    List<WeakScalingResult> runWeakScaling(CalibratedWorkload workload, int[] scaleFactors, int iterations) {
-        int[] factors = Arrays.copyOf(scaleFactors, scaleFactors.length);
-        Arrays.sort(factors);
-        List<WeakScalingResult> results = new ArrayList<>(factors.length);
-        for (int scale : factors) {
-            int dataSize = Math.max(1, workload.getDataSize() * scale);
+    List<WeakScalingResult> runWeakScaling(CalibratedWorkload workload, int[] threadCounts, int iterations) {
+        int[] counts = Arrays.copyOf(threadCounts, threadCounts.length);
+        Arrays.sort(counts);
+        List<WeakScalingResult> results = new ArrayList<>(counts.length);
+        double perThreadWorkload = Math.max(1.0, (double) workload.getDataSize() / workload.getCalibrationThreads());
+        for (int threads : counts) {
+            int dataSize = Math.max(1, (int) Math.round(perThreadWorkload * threads));
             double[] dataset = createDataset(dataSize);
-            double averageMillis = measureAverageMillis(dataset, workload.getSigma(), 1, iterations);
-            results.add(new WeakScalingResult(scale, dataSize, iterations, averageMillis));
+            double averageMillis = measureAverageMillis(dataset, workload.getSigma(), 1, iterations, threads);
+            results.add(new WeakScalingResult(threads, dataSize, iterations, averageMillis));
         }
         return results;
     }
 
-    List<StrongScalingResult> runStrongScaling(CalibratedWorkload workload, int[] partitionCounts, int iterations) {
-        int[] partitions = Arrays.copyOf(partitionCounts, partitionCounts.length);
-        Arrays.sort(partitions);
-        int maxPartitions = partitions[partitions.length - 1];
-        int totalSize = Math.max(maxPartitions, workload.getDataSize() * maxPartitions);
-        double[] fullDataset = createDataset(totalSize);
+    List<StrongScalingResult> runStrongScaling(CalibratedWorkload workload, int[] threadCounts, int iterations) {
+        int[] counts = Arrays.copyOf(threadCounts, threadCounts.length);
+        Arrays.sort(counts);
+        int totalSize = workload.getDataSize();
+        double[] baseDataset = createDataset(totalSize);
 
-        List<StrongScalingResult> results = new ArrayList<>(partitions.length);
-        for (int partitionCount : partitions) {
-            double[][] slices = splitDataset(fullDataset, partitionCount);
-            double averageMillis = measureStrongAverageMillis(slices, workload.getSigma(), iterations);
-            int minPartitionSize = Integer.MAX_VALUE;
-            int maxPartitionSize = Integer.MIN_VALUE;
-            for (double[] slice : slices) {
-                minPartitionSize = Math.min(minPartitionSize, slice.length);
-                maxPartitionSize = Math.max(maxPartitionSize, slice.length);
-            }
-            results.add(new StrongScalingResult(partitionCount, totalSize, minPartitionSize,
-                    maxPartitionSize, iterations, averageMillis));
+        List<StrongScalingResult> results = new ArrayList<>(counts.length);
+        for (int threads : counts) {
+            double averageMillis = measureAverageMillis(baseDataset, workload.getSigma(), 1, iterations, threads);
+            results.add(new StrongScalingResult(threads, totalSize, iterations, averageMillis));
         }
         return results;
     }
 
-    private double measureAverageMillis(double[] dataset, double sigma, int warmupIterations, int measureIterations) {
+    private double measureAverageMillis(double[] dataset, double sigma, int warmupIterations,
+                                        int measureIterations, int threadCount) {
         if (warmupIterations > 0) {
             double[] warmupCopy = Arrays.copyOf(dataset, dataset.length);
-            executeIterations(warmupCopy, sigma, warmupIterations);
+            executeIterations(warmupCopy, sigma, warmupIterations, threadCount);
         }
         double[] measureCopy = Arrays.copyOf(dataset, dataset.length);
-        return executeIterations(measureCopy, sigma, measureIterations);
+        return executeIterations(measureCopy, sigma, measureIterations, threadCount);
     }
 
-    private double measureStrongAverageMillis(double[][] slices, double sigma, int measureIterations) {
-        for (int i = 0; i < 1; i++) {
-            executeStrongIteration(slices, sigma);
-        }
-        long start = System.nanoTime();
-        double lastResult = 0.0;
-        for (int i = 0; i < measureIterations; i++) {
-            lastResult = executeStrongIteration(slices, sigma);
-        }
-        long duration = System.nanoTime() - start;
-        return duration / (measureIterations * NANOS_IN_MILLI);
-    }
-
-    private double executeIterations(double[] dataset, double sigma, int iterations) {
+    private double executeIterations(double[] dataset, double sigma, int iterations, int threadCount) {
         long start = System.nanoTime();
         double lastResult = 0.0;
         for (int i = 0; i < iterations; i++) {
-            service.initBinaryAggregation(dataset.length, sigma);
-            for (double value : dataset) {
-                lastResult = service.addToBinaryAggregation(value);
-            }
-            lastResult = service.getBinaryAggregationSum();
-            perturbDataset(dataset);
+            lastResult = runDataset(dataset, sigma, threadCount);
         }
         long duration = System.nanoTime() - start;
         double averageMillis = duration / (iterations * NANOS_IN_MILLI);
@@ -125,22 +107,6 @@ final class BenchmarkRunner {
             throw new IllegalStateException("Computation produced NaN");
         }
         return averageMillis;
-    }
-
-    private double executeStrongIteration(double[][] slices, double sigma) {
-        double last = 0.0;
-        for (double[] slice : slices) {
-            service.initBinaryAggregation(slice.length, sigma);
-            for (double value : slice) {
-                last = service.addToBinaryAggregation(value);
-            }
-            last = service.getBinaryAggregationSum();
-            perturbDataset(slice);
-        }
-        if (Double.isNaN(last)) {
-            throw new IllegalStateException("Strong scaling produced NaN");
-        }
-        return last;
     }
 
     private double[] createDataset(int size) {
@@ -157,22 +123,49 @@ final class BenchmarkRunner {
         }
     }
 
-    private double[][] splitDataset(double[] source, int partitions) {
-        if (partitions <= 0) {
-            throw new IllegalArgumentException("Part count must be positive");
+    private double runDataset(double[] dataset, double sigma, int threadCount) {
+        service.initBinaryAggregation(dataset.length, sigma);
+        ExecutorService pool = Executors.newFixedThreadPool(threadCount, new BenchmarkThreadFactory());
+        try {
+            List<Callable<Double>> tasks = new ArrayList<>(threadCount);
+            int chunkSize = Math.max(1, (dataset.length + threadCount - 1) / threadCount);
+            for (int t = 0; t < threadCount; t++) {
+                int start = t * chunkSize;
+                int end = Math.min(dataset.length, start + chunkSize);
+                if (start >= end) {
+                    break;
+                }
+                tasks.add(new SliceTask(service, dataset, start, end));
+            }
+            double lastResult = Double.NaN;
+            for (Future<Double> future : pool.invokeAll(tasks)) {
+                Double result = future.get();
+                if (result != null) {
+                    lastResult = result;
+                }
+            }
+            double total = service.getBinaryAggregationSum();
+            perturbDataset(dataset);
+            if (Double.isNaN(total)) {
+                throw new IllegalStateException("Aggregation sum produced NaN");
+            }
+            return total;
+        } catch (InterruptedException ie) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Interrupted while updating aggregation tree", ie);
+        } catch (ExecutionException ee) {
+            throw new IllegalStateException("Failed to update aggregation tree", ee.getCause());
+        } finally {
+            pool.shutdown();
+            try {
+                if (!pool.awaitTermination(30, TimeUnit.SECONDS)) {
+                    pool.shutdownNow();
+                }
+            } catch (InterruptedException ie) {
+                pool.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
         }
-        double[][] result = new double[partitions][];
-        int baseSize = source.length / partitions;
-        int remainder = source.length % partitions;
-        int offset = 0;
-        for (int i = 0; i < partitions; i++) {
-            int currentSize = baseSize + (i < remainder ? 1 : 0);
-            double[] part = new double[currentSize];
-            System.arraycopy(source, offset, part, 0, currentSize);
-            result[i] = part;
-            offset += currentSize;
-        }
-        return result;
     }
 
     static final class CalibrationSettings {
@@ -297,14 +290,16 @@ final class BenchmarkRunner {
         private final int iterations;
         private final double averageMillis;
         private final int attempts;
+        private final int calibrationThreads;
 
         CalibratedWorkload(int dataSize, double sigma, int iterations,
-                           double averageMillis, int attempts) {
+                           double averageMillis, int attempts, int calibrationThreads) {
             this.dataSize = dataSize;
             this.sigma = sigma;
             this.iterations = iterations;
             this.averageMillis = averageMillis;
             this.attempts = attempts;
+            this.calibrationThreads = calibrationThreads;
         }
 
         int getDataSize() {
@@ -327,6 +322,10 @@ final class BenchmarkRunner {
             return attempts;
         }
 
+        int getCalibrationThreads() {
+            return calibrationThreads;
+        }
+
         @Override
         public String toString() {
             return "CalibratedWorkload{" +
@@ -335,25 +334,26 @@ final class BenchmarkRunner {
                     ", iterations=" + iterations +
                     ", avgTimeMillis=" + String.format("%.3f", averageMillis) +
                     ", attempts=" + attempts +
+                    ", calibrationThreads=" + calibrationThreads +
                     '}';
         }
     }
 
     static final class WeakScalingResult {
-        private final int scaleFactor;
+        private final int threadCount;
         private final int dataSize;
         private final int iterations;
         private final double averageMillis;
 
-        WeakScalingResult(int scaleFactor, int dataSize, int iterations, double averageMillis) {
-            this.scaleFactor = scaleFactor;
+        WeakScalingResult(int threadCount, int dataSize, int iterations, double averageMillis) {
+            this.threadCount = threadCount;
             this.dataSize = dataSize;
             this.iterations = iterations;
             this.averageMillis = averageMillis;
         }
 
-        int getScaleFactor() {
-            return scaleFactor;
+        int getThreadCount() {
+            return threadCount;
         }
 
         int getDataSize() {
@@ -370,37 +370,24 @@ final class BenchmarkRunner {
     }
 
     static final class StrongScalingResult {
-        private final int partitionCount;
+        private final int threadCount;
         private final int totalSize;
-        private final int minPartitionSize;
-        private final int maxPartitionSize;
         private final int iterations;
         private final double averageMillis;
 
-        StrongScalingResult(int partitionCount, int totalSize, int minPartitionSize,
-                            int maxPartitionSize, int iterations, double averageMillis) {
-            this.partitionCount = partitionCount;
+        StrongScalingResult(int threadCount, int totalSize, int iterations, double averageMillis) {
+            this.threadCount = threadCount;
             this.totalSize = totalSize;
-            this.minPartitionSize = minPartitionSize;
-            this.maxPartitionSize = maxPartitionSize;
             this.iterations = iterations;
             this.averageMillis = averageMillis;
         }
 
-        int getPartitionCount() {
-            return partitionCount;
+        int getThreadCount() {
+            return threadCount;
         }
 
         int getTotalSize() {
             return totalSize;
-        }
-
-        int getMinPartitionSize() {
-            return minPartitionSize;
-        }
-
-        int getMaxPartitionSize() {
-            return maxPartitionSize;
         }
 
         int getIterations() {
@@ -442,16 +429,16 @@ final class BenchmarkRunner {
             sb.append("{\n");
             sb.append("  \"calibration\": {\n");
             sb.append(String.format(Locale.US,
-                    "    \"dataSize\": %d,%n    \"sigma\": %.6f,%n    \"iterations\": %d,%n    \"avgTimeMillis\": %.3f,%n    \"attempts\": %d%n",
+                    "    \"dataSize\": %d,%n    \"sigma\": %.6f,%n    \"iterations\": %d,%n    \"avgTimeMillis\": %.3f,%n    \"attempts\": %d,%n    \"threads\": %d%n",
                     calibration.getDataSize(), calibration.getSigma(), calibration.getIterations(),
-                    calibration.getAverageMillis(), calibration.getAttempts()));
+                    calibration.getAverageMillis(), calibration.getAttempts(), calibration.getCalibrationThreads()));
             sb.append("  },\n");
             sb.append("  \"weakScaling\": [\n");
             for (int i = 0; i < weakScalingResults.size(); i++) {
                 WeakScalingResult result = weakScalingResults.get(i);
                 sb.append(String.format(Locale.US,
-                        "    {\"scaleFactor\": %d, \"dataSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
-                        result.getScaleFactor(), result.getDataSize(), result.getIterations(),
+                        "    {\"threads\": %d, \"dataSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
+                        result.getThreadCount(), result.getDataSize(), result.getIterations(),
                         result.getAverageMillis()));
                 if (i < weakScalingResults.size() - 1) {
                     sb.append(",");
@@ -463,9 +450,8 @@ final class BenchmarkRunner {
             for (int i = 0; i < strongScalingResults.size(); i++) {
                 StrongScalingResult result = strongScalingResults.get(i);
                 sb.append(String.format(Locale.US,
-                        "    {\"partitions\": %d, \"totalSize\": %d, \"minPartitionSize\": %d, \"maxPartitionSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
-                        result.getPartitionCount(), result.getTotalSize(), result.getMinPartitionSize(),
-                        result.getMaxPartitionSize(), result.getIterations(), result.getAverageMillis()));
+                        "    {\"threads\": %d, \"totalSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
+                        result.getThreadCount(), result.getTotalSize(), result.getIterations(), result.getAverageMillis()));
                 if (i < strongScalingResults.size() - 1) {
                     sb.append(",");
                 }
@@ -474,6 +460,40 @@ final class BenchmarkRunner {
             sb.append("  ]\n");
             sb.append("}");
             return sb.toString();
+        }
+    }
+
+    private static final class BenchmarkThreadFactory implements ThreadFactory {
+        private int index = 0;
+
+        @Override
+        public synchronized Thread newThread(Runnable r) {
+            Thread thread = new Thread(r, "benchmark-executor-" + (++index));
+            thread.setDaemon(true);
+            return thread;
+        }
+    }
+
+    private static final class SliceTask implements Callable<Double> {
+        private final Service service;
+        private final double[] dataset;
+        private final int start;
+        private final int end;
+
+        SliceTask(Service service, double[] dataset, int start, int end) {
+            this.service = service;
+            this.dataset = dataset;
+            this.start = start;
+            this.end = end;
+        }
+
+        @Override
+        public Double call() {
+            Double last = null;
+            for (int i = start; i < end; i++) {
+                last = service.addToBinaryAggregation(dataset[i]);
+            }
+            return last;
         }
     }
 }
