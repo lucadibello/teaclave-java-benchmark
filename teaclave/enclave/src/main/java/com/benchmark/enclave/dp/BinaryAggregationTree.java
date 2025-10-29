@@ -8,9 +8,10 @@ import java.util.Random;
 public class BinaryAggregationTree implements Serializable {
     private Double curPrivateSum = 0.00;
     private final ArrayList<Double> tree;
-    private static int height = 0;
+    private final int height;
 
     public BinaryAggregationTree(int n, double sigma) {
+        this.height = (int) Math.ceil(Math.log(n) / Math.log(2));
         tree = initializeTree(n, sigma);
     }
 
@@ -19,7 +20,6 @@ public class BinaryAggregationTree implements Serializable {
     }
 
     private ArrayList<Double> initializeTree(int n, double sigma) {
-        height = (int) Math.ceil(Math.log(n) / Math.log(2));
         int numLeaves = (int) Math.pow(2, height);
         ArrayList<Double> tree = new ArrayList<>();
         int treeSize = 2 * numLeaves - 1;

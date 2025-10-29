@@ -11,7 +11,6 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Random;
 
@@ -58,16 +57,14 @@ class BinaryAggregationBenchmarkTest {
         int[] strongThreads = new int[]{1, 2, 4};
         BenchmarkRunner.CalibrationSettings settings =
                 new BenchmarkRunner.CalibrationSettings(32, 1024, 5.0, 2, 1, 3, 0.25);
-        int maxThreads = Arrays.stream(new int[][]{weakThreads, strongThreads})
-                .flatMapToInt(Arrays::stream)
-                .max().orElse(4);
-        try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(456L), maxThreads)) {
+        try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(456L))) {
             BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
             var weakResults = runner.runWeakScaling(workload, weakThreads, 3);
             var strongResults = runner.runStrongScaling(workload, strongThreads, 3);
             BenchmarkRunner.BenchmarkSummary summary =
                     new BenchmarkRunner.BenchmarkSummary(settings, EnclaveType.MOCK_IN_JVM.name(),
-                            workload, weakThreads, weakResults, strongThreads, strongResults);
+                            workload, weakThreads, weakResults, strongThreads, strongResults,
+                            runner.getMaxNativeParallelism());
 
             Assertions.assertEquals(weakThreads.length, weakResults.size());
             Assertions.assertEquals(strongThreads.length, strongResults.size());
@@ -85,10 +82,48 @@ class BinaryAggregationBenchmarkTest {
     void calibrationProducesWorkload() {
         BenchmarkRunner.CalibrationSettings settings =
                 new BenchmarkRunner.CalibrationSettings(64, 4096, 10.0, 2, 1, 2, 0.0);
-        try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(123L), 4)) {
+        try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(123L))) {
             BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
             Assertions.assertTrue(workload.getDataSize() >= 64, "Calibrated data size should grow from initial guess");
             Assertions.assertTrue(workload.getAverageMillis() >= 0.0, "Average millis should be non-negative");
+        }
+    }
+
+    @Test
+    void weakScalingRespectsNativeParallelismLimit() {
+        int[] weakThreads = new int[]{1, 2, 4};
+        BenchmarkRunner.CalibrationSettings settings =
+                new BenchmarkRunner.CalibrationSettings(32, 512, 5.0, 2, 1, 2, 0.1);
+        try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(789L), 2)) {
+            BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
+            var weakResults = runner.runWeakScaling(workload, weakThreads, 2);
+
+            WeakScalingResultLookup lookup = new WeakScalingResultLookup(weakResults);
+            var twoThreads = lookup.byRequestedCount(2);
+            var fourThreads = lookup.byRequestedCount(4);
+
+            Assertions.assertEquals(2, twoThreads.getExecutedThreadCount(), "Executed threads should match native limit for 2 threads");
+            Assertions.assertEquals(2, fourThreads.getExecutedThreadCount(), "Executed threads should be capped at native limit for 4 threads");
+            Assertions.assertEquals(twoThreads.getDataSize(), fourThreads.getDataSize(),
+                    "Weak scaling data size should remain constant once native thread limit is reached");
+        }
+    }
+
+    private static final class WeakScalingResultLookup {
+        private final java.util.Map<Integer, BenchmarkRunner.WeakScalingResult> byRequested = new java.util.HashMap<>();
+
+        WeakScalingResultLookup(java.util.List<BenchmarkRunner.WeakScalingResult> results) {
+            for (BenchmarkRunner.WeakScalingResult result : results) {
+                byRequested.put(result.getRequestedThreadCount(), result);
+            }
+        }
+
+        BenchmarkRunner.WeakScalingResult byRequestedCount(int requested) {
+            BenchmarkRunner.WeakScalingResult result = byRequested.get(requested);
+            if (result == null) {
+                throw new AssertionError("No weak scaling result for requested thread count: " + requested);
+            }
+            return result;
         }
     }
 

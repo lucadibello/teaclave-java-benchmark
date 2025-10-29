@@ -7,7 +7,6 @@ import org.apache.teaclave.javasdk.host.EnclaveType;
 
 import java.util.Arrays;
 import java.util.Iterator;
-import java.util.stream.IntStream;
 
 public final class Main {
 
@@ -29,9 +28,8 @@ public final class Main {
                 Arrays.stream(weakThreadCounts).min().orElse(Integer.MAX_VALUE),
                 Arrays.stream(strongThreadCounts).min().orElse(Integer.MAX_VALUE)));
         // Use the smallest configured thread count to derive the baseline per-thread workload.
-        int maxThreads = Math.max(calibrationThreads,
-                IntStream.concat(Arrays.stream(weakThreadCounts), Arrays.stream(strongThreadCounts))
-                        .max().orElse(calibrationThreads));
+        int nativeParallelism = resolveNativeParallelism(enclaveType);
+        System.out.println("Using " + nativeParallelism + " native threads!");
 
         Enclave enclave = EnclaveFactory.create(enclaveType);
         Iterator<Service> services = enclave.load(Service.class);
@@ -43,7 +41,7 @@ public final class Main {
         try {
             BenchmarkRunner.CalibrationSettings calibrationSettings =
                     BenchmarkRunner.CalibrationSettings.fromEnvironment(sigma);
-            try (BenchmarkRunner runner = new BenchmarkRunner(service, maxThreads)) {
+            try (BenchmarkRunner runner = new BenchmarkRunner(service, nativeParallelism)) {
                 BenchmarkRunner.CalibratedWorkload workload =
                         runner.calibrate(calibrationSettings, calibrationThreads);
                 var weakResults =
@@ -52,7 +50,7 @@ public final class Main {
                         runner.runStrongScaling(workload, strongThreadCounts, calibrationSettings.getMeasureIterations());
                 BenchmarkRunner.BenchmarkSummary summary =
                         new BenchmarkRunner.BenchmarkSummary(calibrationSettings, enclaveType.name(), workload,
-                                weakThreadCounts, weakResults, strongThreadCounts, strongResults);
+                                weakThreadCounts, weakResults, strongThreadCounts, strongResults, nativeParallelism);
 
                 System.out.println("== Benchmark Summary ==");
                 System.out.println(summary.toPrettyString());
@@ -107,5 +105,22 @@ public final class Main {
             }
         }
         return values;
+    }
+
+    private static int resolveNativeParallelism(EnclaveType enclaveType) {
+        String raw = System.getenv("TEACLAVE_BENCH_NATIVE_PARALLELISM");
+        int defaultValue = enclaveType == EnclaveType.MOCK_IN_JVM ? Integer.MAX_VALUE : 4;
+        if (raw == null || raw.isEmpty()) {
+            return defaultValue;
+        }
+        try {
+            int value = Integer.parseInt(raw.trim());
+            if (value <= 0) {
+                return defaultValue;
+            }
+            return value;
+        } catch (NumberFormatException nfe) {
+            throw new IllegalArgumentException("Unable to parse TEACLAVE_BENCH_NATIVE_PARALLELISM=" + raw, nfe);
+        }
     }
 }

@@ -8,13 +8,15 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
-import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 final class BenchmarkRunner implements AutoCloseable {
 
@@ -22,34 +24,30 @@ final class BenchmarkRunner implements AutoCloseable {
 
     private final Service service;
     private final Random random;
+    private final int maxNativeParallelism;
     private final ExecutorService executor;
-    private final int maxThreads;
 
-    BenchmarkRunner(Service service, int maxThreads) {
-        this(service, new Random(0L), maxThreads);
+    BenchmarkRunner(Service service) {
+        this(service, new Random(0L));
     }
 
-    BenchmarkRunner(Service service, Random random, int maxThreads) {
-        if (maxThreads <= 0) {
-            throw new IllegalArgumentException("maxThreads must be positive");
-        }
+    BenchmarkRunner(Service service, int maxNativeParallelism) {
+        this(service, new Random(0L), maxNativeParallelism);
+    }
+
+    BenchmarkRunner(Service service, Random random) {
+        this(service, random, Integer.MAX_VALUE);
+    }
+
+    BenchmarkRunner(Service service, Random random, int maxNativeParallelism) {
         this.service = service;
         this.random = random;
-        this.maxThreads = maxThreads;
-        this.executor = Executors.newFixedThreadPool(maxThreads, new BenchmarkThreadFactory());
+        this.maxNativeParallelism = maxNativeParallelism <= 0 ? Integer.MAX_VALUE : maxNativeParallelism;
+        this.executor = createExecutor(this.maxNativeParallelism);
     }
 
-    @Override
-    public void close() {
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException ie) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
+    int getMaxNativeParallelism() {
+        return maxNativeParallelism;
     }
 
     CalibratedWorkload calibrate(CalibrationSettings settings, int threadCount) {
@@ -58,9 +56,11 @@ final class BenchmarkRunner implements AutoCloseable {
         double averageMillis = 0.0;
         double[] dataset = createDataset(size);
 
+        int executedThreads = Math.max(1, Math.min(threadCount, maxNativeParallelism));
+
         while (size <= settings.getMaxSize()) {
             averageMillis = measureAverageMillis(dataset, settings.getSigma(), settings.getWarmupIterations(),
-                    settings.getMeasureIterations(), threadCount);
+                    settings.getMeasureIterations(), executedThreads);
             attempts++;
             if (averageMillis >= settings.getTargetMillis()) {
                 break;
@@ -74,19 +74,20 @@ final class BenchmarkRunner implements AutoCloseable {
         }
 
         return new CalibratedWorkload(size, settings.getSigma(), settings.getMeasureIterations(),
-                averageMillis, attempts, threadCount);
+                averageMillis, attempts, threadCount, executedThreads);
     }
 
     List<WeakScalingResult> runWeakScaling(CalibratedWorkload workload, int[] threadCounts, int iterations) {
         int[] counts = Arrays.copyOf(threadCounts, threadCounts.length);
         Arrays.sort(counts);
         List<WeakScalingResult> results = new ArrayList<>(counts.length);
-        double perThreadWorkload = Math.max(1.0, (double) workload.getDataSize() / workload.getCalibrationThreads());
+        double perThreadWorkload = Math.max(1.0, (double) workload.getDataSize() / workload.getExecutedThreads());
         for (int threads : counts) {
-            int dataSize = Math.max(1, (int) Math.round(perThreadWorkload * threads));
+            int executedThreads = Math.max(1, Math.min(threads, maxNativeParallelism));
+            int dataSize = Math.max(1, (int) Math.round(perThreadWorkload * executedThreads));
             double[] dataset = createDataset(dataSize);
-            double averageMillis = measureAverageMillis(dataset, workload.getSigma(), 1, iterations, threads);
-            results.add(new WeakScalingResult(threads, dataSize, iterations, averageMillis));
+            double averageMillis = measureAverageMillis(dataset, workload.getSigma(), 1, iterations, executedThreads);
+            results.add(new WeakScalingResult(threads, executedThreads, dataSize, iterations, averageMillis));
         }
         return results;
     }
@@ -99,8 +100,9 @@ final class BenchmarkRunner implements AutoCloseable {
 
         List<StrongScalingResult> results = new ArrayList<>(counts.length);
         for (int threads : counts) {
-            double averageMillis = measureAverageMillis(baseDataset, workload.getSigma(), 1, iterations, threads);
-            results.add(new StrongScalingResult(threads, totalSize, iterations, averageMillis));
+            int executedThreads = Math.max(1, Math.min(threads, maxNativeParallelism));
+            double averageMillis = measureAverageMillis(baseDataset, workload.getSigma(), 1, iterations, executedThreads);
+            results.add(new StrongScalingResult(threads, executedThreads, totalSize, iterations, averageMillis));
         }
         return results;
     }
@@ -144,43 +146,105 @@ final class BenchmarkRunner implements AutoCloseable {
     }
 
     private double runDataset(double[] dataset, double sigma, int threadCount) {
-        if (threadCount <= 0 || threadCount > maxThreads) {
-            throw new IllegalArgumentException("threadCount must be between 1 and " + maxThreads + ": " + threadCount);
-        }
+        int effectiveThreads = Math.max(1, Math.min(threadCount, maxNativeParallelism));
         service.initBinaryAggregation(dataset.length, sigma);
-        List<Callable<Double>> tasks = new ArrayList<>(threadCount);
-        int chunkSize = Math.max(1, (dataset.length + threadCount - 1) / threadCount);
-        for (int t = 0; t < threadCount; t++) {
+        int chunkSize = Math.max(1, (dataset.length + effectiveThreads - 1) / effectiveThreads);
+        List<Future<?>> futures = new ArrayList<>(effectiveThreads);
+        for (int t = 0; t < effectiveThreads; t++) {
             int start = t * chunkSize;
             int end = Math.min(dataset.length, start + chunkSize);
             if (start >= end) {
                 break;
             }
-            tasks.add(new SliceTask(service, dataset, start, end));
-        }
-        try {
-            double lastResult = Double.NaN;
-            List<Future<Double>> futures = new ArrayList<>(tasks.size());
-            for (Callable<Double> task : tasks) {
-                futures.add(executor.submit(task));
-            }
-            for (Future<Double> future : futures) {
-                Double result = future.get();
-                if (result != null) {
-                    lastResult = result;
+            final int sliceStart = start;
+            final int sliceEnd = end;
+            futures.add(executor.submit(() -> {
+                for (int idx = sliceStart; idx < sliceEnd; idx++) {
+                    service.addToBinaryAggregation(dataset[idx]);
                 }
+            }));
+        }
+
+        Throwable failure = null;
+        for (Future<?> future : futures) {
+            try {
+                future.get();
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                cancelFutures(futures);
+                throw new IllegalStateException("Benchmark interrupted", ie);
+            } catch (ExecutionException ee) {
+                failure = ee.getCause() == null ? ee : ee.getCause();
+                cancelFutures(futures);
+                break;
             }
-            double total = service.getBinaryAggregationSum();
-            perturbDataset(dataset);
-            if (Double.isNaN(total)) {
-                throw new IllegalStateException("Aggregation sum produced NaN");
+        }
+
+        if (failure != null) {
+            if (failure instanceof RuntimeException) {
+                throw (RuntimeException) failure;
             }
-            return total;
+            throw new IllegalStateException("Worker thread failed", failure);
+        }
+
+        double total = service.getBinaryAggregationSum();
+        perturbDataset(dataset);
+        if (Double.isNaN(total)) {
+            throw new IllegalStateException("Aggregation sum produced NaN");
+        }
+        return total;
+    }
+
+    private ExecutorService createExecutor(int nativeParallelism) {
+        ThreadFactory threadFactory = new ThreadFactory() {
+            private final AtomicInteger counter = new AtomicInteger();
+
+            @Override
+            public Thread newThread(Runnable runnable) {
+                Thread thread = new Thread(runnable);
+                thread.setName("benchmark-worker-" + counter.getAndIncrement());
+                thread.setDaemon(true);
+                return thread;
+            }
+        };
+        if (nativeParallelism == Integer.MAX_VALUE) {
+            ThreadPoolExecutor cached = new ThreadPoolExecutor(
+                    0,
+                    Integer.MAX_VALUE,
+                    60L,
+                    TimeUnit.SECONDS,
+                    new SynchronousQueue<>(),
+                    threadFactory);
+            cached.allowCoreThreadTimeOut(true);
+            return cached;
+        }
+        ThreadPoolExecutor fixed = new ThreadPoolExecutor(
+                nativeParallelism,
+                nativeParallelism,
+                0L,
+                TimeUnit.MILLISECONDS,
+                new LinkedBlockingQueue<>(),
+                threadFactory);
+        fixed.prestartAllCoreThreads();
+        return fixed;
+    }
+
+    private void cancelFutures(List<Future<?>> futures) {
+        for (Future<?> future : futures) {
+            future.cancel(true);
+        }
+    }
+
+    @Override
+    public void close() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
         } catch (InterruptedException ie) {
+            executor.shutdownNow();
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted while updating aggregation tree", ie);
-        } catch (ExecutionException ee) {
-            throw new IllegalStateException("Failed to update aggregation tree", ee.getCause());
         }
     }
 
@@ -306,16 +370,18 @@ final class BenchmarkRunner implements AutoCloseable {
         private final int iterations;
         private final double averageMillis;
         private final int attempts;
-        private final int calibrationThreads;
+        private final int requestedThreads;
+        private final int executedThreads;
 
         CalibratedWorkload(int dataSize, double sigma, int iterations,
-                           double averageMillis, int attempts, int calibrationThreads) {
+                           double averageMillis, int attempts, int requestedThreads, int executedThreads) {
             this.dataSize = dataSize;
             this.sigma = sigma;
             this.iterations = iterations;
             this.averageMillis = averageMillis;
             this.attempts = attempts;
-            this.calibrationThreads = calibrationThreads;
+            this.requestedThreads = requestedThreads;
+            this.executedThreads = executedThreads;
         }
 
         int getDataSize() {
@@ -338,8 +404,12 @@ final class BenchmarkRunner implements AutoCloseable {
             return attempts;
         }
 
-        int getCalibrationThreads() {
-            return calibrationThreads;
+        int getRequestedThreads() {
+            return requestedThreads;
+        }
+
+        int getExecutedThreads() {
+            return executedThreads;
         }
 
         @Override
@@ -350,26 +420,33 @@ final class BenchmarkRunner implements AutoCloseable {
                     ", iterations=" + iterations +
                     ", avgTimeMillis=" + String.format("%.3f", averageMillis) +
                     ", attempts=" + attempts +
-                    ", calibrationThreads=" + calibrationThreads +
+                    ", requestedThreads=" + requestedThreads +
+                    ", executedThreads=" + executedThreads +
                     '}';
         }
     }
 
     static final class WeakScalingResult {
-        private final int threadCount;
+        private final int requestedThreadCount;
+        private final int executedThreadCount;
         private final int dataSize;
         private final int iterations;
         private final double averageMillis;
 
-        WeakScalingResult(int threadCount, int dataSize, int iterations, double averageMillis) {
-            this.threadCount = threadCount;
+        WeakScalingResult(int requestedThreadCount, int executedThreadCount, int dataSize, int iterations, double averageMillis) {
+            this.requestedThreadCount = requestedThreadCount;
+            this.executedThreadCount = executedThreadCount;
             this.dataSize = dataSize;
             this.iterations = iterations;
             this.averageMillis = averageMillis;
         }
 
-        int getThreadCount() {
-            return threadCount;
+        int getRequestedThreadCount() {
+            return requestedThreadCount;
+        }
+
+        int getExecutedThreadCount() {
+            return executedThreadCount;
         }
 
         int getDataSize() {
@@ -386,20 +463,26 @@ final class BenchmarkRunner implements AutoCloseable {
     }
 
     static final class StrongScalingResult {
-        private final int threadCount;
+        private final int requestedThreadCount;
+        private final int executedThreadCount;
         private final int totalSize;
         private final int iterations;
         private final double averageMillis;
 
-        StrongScalingResult(int threadCount, int totalSize, int iterations, double averageMillis) {
-            this.threadCount = threadCount;
+        StrongScalingResult(int requestedThreadCount, int executedThreadCount, int totalSize, int iterations, double averageMillis) {
+            this.requestedThreadCount = requestedThreadCount;
+            this.executedThreadCount = executedThreadCount;
             this.totalSize = totalSize;
             this.iterations = iterations;
             this.averageMillis = averageMillis;
         }
 
-        int getThreadCount() {
-            return threadCount;
+        int getRequestedThreadCount() {
+            return requestedThreadCount;
+        }
+
+        int getExecutedThreadCount() {
+            return executedThreadCount;
         }
 
         int getTotalSize() {
@@ -423,6 +506,8 @@ final class BenchmarkRunner implements AutoCloseable {
         private final int[] strongThreadCounts;
         private final List<WeakScalingResult> weakScalingResults;
         private final List<StrongScalingResult> strongScalingResults;
+        private final int maxNativeThreadsSupported;
+        private final int maxNativeThreadsUsed;
 
         BenchmarkSummary(CalibrationSettings settings,
                          String executionMode,
@@ -430,7 +515,8 @@ final class BenchmarkRunner implements AutoCloseable {
                          int[] weakThreadCounts,
                          List<WeakScalingResult> weakScalingResults,
                          int[] strongThreadCounts,
-                         List<StrongScalingResult> strongScalingResults) {
+                         List<StrongScalingResult> strongScalingResults,
+                         int maxNativeThreadsUsed) {
             this.settings = settings;
             this.executionMode = executionMode;
             this.calibration = calibration;
@@ -438,6 +524,8 @@ final class BenchmarkRunner implements AutoCloseable {
             this.strongThreadCounts = Arrays.copyOf(strongThreadCounts, strongThreadCounts.length);
             this.weakScalingResults = Collections.unmodifiableList(new ArrayList<>(weakScalingResults));
             this.strongScalingResults = Collections.unmodifiableList(new ArrayList<>(strongScalingResults));
+            this.maxNativeThreadsSupported = computeMaxNativeThreadsSupported(calibration, weakScalingResults, strongScalingResults);
+            this.maxNativeThreadsUsed = maxNativeThreadsUsed;
         }
 
         CalibratedWorkload getCalibration() {
@@ -457,23 +545,27 @@ final class BenchmarkRunner implements AutoCloseable {
             sb.append("{\n");
             sb.append("  \"settings\": {\n");
             sb.append(String.format(Locale.US,
-                    "    \"sigma\": %.6f,%n    \"initialSize\": %d,%n    \"maxSize\": %d,%n    \"targetMillis\": %.3f,%n    \"growthFactor\": %d,%n    \"warmupIterations\": %d,%n    \"measureIterations\": %d,%n    \"weakThreadCounts\": %s,%n    \"strongThreadCounts\": %s,%n    \"executionMode\": \"%s\"%n",
+                    "    \"sigma\": %.6f,%n    \"initialSize\": %d,%n    \"maxSize\": %d,%n    \"targetMillis\": %.3f,%n    \"growthFactor\": %d,%n    \"warmupIterations\": %d,%n    \"measureIterations\": %d,%n    \"weakThreadCounts\": %s,%n    \"strongThreadCounts\": %s,%n",
                     settings.getSigma(), settings.getInitialSize(), settings.getMaxSize(), settings.getTargetMillis(),
                     settings.getGrowthFactor(), settings.getWarmupIterations(), settings.getMeasureIterations(),
-                    formatIntArray(weakThreadCounts), formatIntArray(strongThreadCounts), executionMode));
+                    formatIntArray(weakThreadCounts), formatIntArray(strongThreadCounts)));
+            sb.append(String.format(Locale.US, "    \"executionMode\": \"%s\",%n", executionMode));
+            sb.append(String.format(Locale.US, "    \"maxNativeThreadsSupported\": %d,%n", maxNativeThreadsSupported));
+            sb.append(String.format(Locale.US, "    \"maxNativeThreadsUsed\": %d%n", maxNativeThreadsUsed));
             sb.append("  },\n");
             sb.append("  \"calibration\": {\n");
             sb.append(String.format(Locale.US,
-                    "    \"dataSize\": %d,%n    \"sigma\": %.6f,%n    \"iterations\": %d,%n    \"avgTimeMillis\": %.3f,%n    \"attempts\": %d,%n    \"threads\": %d%n",
+                    "    \"dataSize\": %d,%n    \"sigma\": %.6f,%n    \"iterations\": %d,%n    \"avgTimeMillis\": %.3f,%n    \"attempts\": %d,%n    \"requestedThreads\": %d,%n    \"executedThreads\": %d%n",
                     calibration.getDataSize(), calibration.getSigma(), calibration.getIterations(),
-                    calibration.getAverageMillis(), calibration.getAttempts(), calibration.getCalibrationThreads()));
+                    calibration.getAverageMillis(), calibration.getAttempts(), calibration.getRequestedThreads(),
+                    calibration.getExecutedThreads()));
             sb.append("  },\n");
             sb.append("  \"weakScaling\": [\n");
             for (int i = 0; i < weakScalingResults.size(); i++) {
                 WeakScalingResult result = weakScalingResults.get(i);
                 sb.append(String.format(Locale.US,
-                        "    {\"threads\": %d, \"dataSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
-                        result.getThreadCount(), result.getDataSize(), result.getIterations(),
+                        "    {\"threads\": %d, \"executedThreads\": %d, \"dataSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
+                        result.getRequestedThreadCount(), result.getExecutedThreadCount(), result.getDataSize(), result.getIterations(),
                         result.getAverageMillis()));
                 if (i < weakScalingResults.size() - 1) {
                     sb.append(",");
@@ -485,8 +577,8 @@ final class BenchmarkRunner implements AutoCloseable {
             for (int i = 0; i < strongScalingResults.size(); i++) {
                 StrongScalingResult result = strongScalingResults.get(i);
                 sb.append(String.format(Locale.US,
-                        "    {\"threads\": %d, \"totalSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
-                        result.getThreadCount(), result.getTotalSize(), result.getIterations(), result.getAverageMillis()));
+                        "    {\"threads\": %d, \"executedThreads\": %d, \"totalSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
+                        result.getRequestedThreadCount(), result.getExecutedThreadCount(), result.getTotalSize(), result.getIterations(), result.getAverageMillis()));
                 if (i < strongScalingResults.size() - 1) {
                     sb.append(",");
                 }
@@ -495,6 +587,14 @@ final class BenchmarkRunner implements AutoCloseable {
             sb.append("  ]\n");
             sb.append("}");
             return sb.toString();
+        }
+
+        int getMaxNativeThreadsSupported() {
+            return maxNativeThreadsSupported;
+        }
+
+        int getMaxNativeThreadsUsed() {
+            return maxNativeThreadsUsed;
         }
 
         private static String formatIntArray(int[] values) {
@@ -508,39 +608,19 @@ final class BenchmarkRunner implements AutoCloseable {
             builder.append("]");
             return builder.toString();
         }
-    }
 
-    private static final class BenchmarkThreadFactory implements ThreadFactory {
-        private int index = 0;
-
-        @Override
-        public synchronized Thread newThread(Runnable r) {
-            Thread thread = new Thread(r, "benchmark-executor-" + (++index));
-            thread.setDaemon(true);
-            return thread;
-        }
-    }
-
-    private static final class SliceTask implements Callable<Double> {
-        private final Service service;
-        private final double[] dataset;
-        private final int start;
-        private final int end;
-
-        SliceTask(Service service, double[] dataset, int start, int end) {
-            this.service = service;
-            this.dataset = dataset;
-            this.start = start;
-            this.end = end;
-        }
-
-        @Override
-        public Double call() {
-            Double last = null;
-            for (int i = start; i < end; i++) {
-                last = service.addToBinaryAggregation(dataset[i]);
+        private static int computeMaxNativeThreadsSupported(CalibratedWorkload calibration,
+                                                            List<WeakScalingResult> weakResults,
+                                                            List<StrongScalingResult> strongResults) {
+            int max = calibration != null ? calibration.getExecutedThreads() : 0;
+            for (WeakScalingResult result : weakResults) {
+                max = Math.max(max, result.getExecutedThreadCount());
             }
-            return last;
+            for (StrongScalingResult result : strongResults) {
+                max = Math.max(max, result.getExecutedThreadCount());
+            }
+            return max;
         }
     }
+
 }
