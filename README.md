@@ -93,10 +93,11 @@ Set environment variables to tweak the workload. The most relevant knobs are:
 | `TEACLAVE_BENCH_TARGET_MS` | `0.5` | Target average time in milliseconds. Pair with the size bounds to lock the workload (e.g. `n = 10_000`). |
 | `TEACLAVE_BENCH_WARMUP` | `3` | Warm-up iterations per measurement pass. |
 | `TEACLAVE_BENCH_MEASURE` | `5` | Measurement iterations per pass. |
+| `TEACLAVE_BENCH_NATIVE_PARALLELISM` | `1` | Max concurrent enclave calls when running on TEE hardware (ignored in MOCK mode). |
 
 The calibration pass uses the smallest configured thread count to fix the per-thread workload before running the weak/strong scaling sweeps.
 
-The `teaclave/run.sh` helper loads variables from `teaclave/.env`, then invokes the host JAR with `sudo env …` so SGX devices are accessible while the curated settings (including `TEACLAVE_BENCH_ENCLAVE_TYPE`) stay in effect. Tweak the entries in `.env` to change the run parameters.
+The `teaclave/run.sh` helper loads variables from `teaclave/.env`, then invokes the host JAR (with `sudo` only when Occlum is enabled) so SGX devices are accessible while the curated settings (including `TEACLAVE_BENCH_ENCLAVE_TYPE`) stay in effect. Tweak the entries in `.env` to change the run parameters. When targeting real SGX hardware (`TEE_SDK`), the benchmark throttles the number of concurrent enclave calls to `TEACLAVE_BENCH_NATIVE_PARALLELISM` to avoid exhausting TCS slots; the summary reports both the requested and executed thread counts.
 
 Example (force a 10 000-element workload on the TEE SDK):
 
