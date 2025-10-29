@@ -16,20 +16,40 @@ import java.util.concurrent.Future;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
 
-final class BenchmarkRunner {
+final class BenchmarkRunner implements AutoCloseable {
 
     private static final double NANOS_IN_MILLI = 1_000_000.0;
 
     private final Service service;
     private final Random random;
+    private final ExecutorService executor;
+    private final int maxThreads;
 
-    BenchmarkRunner(Service service) {
-        this(service, new Random(0L));
+    BenchmarkRunner(Service service, int maxThreads) {
+        this(service, new Random(0L), maxThreads);
     }
 
-    BenchmarkRunner(Service service, Random random) {
+    BenchmarkRunner(Service service, Random random, int maxThreads) {
+        if (maxThreads <= 0) {
+            throw new IllegalArgumentException("maxThreads must be positive");
+        }
         this.service = service;
         this.random = random;
+        this.maxThreads = maxThreads;
+        this.executor = Executors.newFixedThreadPool(maxThreads, new BenchmarkThreadFactory());
+    }
+
+    @Override
+    public void close() {
+        executor.shutdown();
+        try {
+            if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                executor.shutdownNow();
+            }
+        } catch (InterruptedException ie) {
+            executor.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
     }
 
     CalibratedWorkload calibrate(CalibrationSettings settings, int threadCount) {
@@ -124,21 +144,27 @@ final class BenchmarkRunner {
     }
 
     private double runDataset(double[] dataset, double sigma, int threadCount) {
+        if (threadCount <= 0 || threadCount > maxThreads) {
+            throw new IllegalArgumentException("threadCount must be between 1 and " + maxThreads + ": " + threadCount);
+        }
         service.initBinaryAggregation(dataset.length, sigma);
-        ExecutorService pool = Executors.newFixedThreadPool(threadCount, new BenchmarkThreadFactory());
-        try {
-            List<Callable<Double>> tasks = new ArrayList<>(threadCount);
-            int chunkSize = Math.max(1, (dataset.length + threadCount - 1) / threadCount);
-            for (int t = 0; t < threadCount; t++) {
-                int start = t * chunkSize;
-                int end = Math.min(dataset.length, start + chunkSize);
-                if (start >= end) {
-                    break;
-                }
-                tasks.add(new SliceTask(service, dataset, start, end));
+        List<Callable<Double>> tasks = new ArrayList<>(threadCount);
+        int chunkSize = Math.max(1, (dataset.length + threadCount - 1) / threadCount);
+        for (int t = 0; t < threadCount; t++) {
+            int start = t * chunkSize;
+            int end = Math.min(dataset.length, start + chunkSize);
+            if (start >= end) {
+                break;
             }
+            tasks.add(new SliceTask(service, dataset, start, end));
+        }
+        try {
             double lastResult = Double.NaN;
-            for (Future<Double> future : pool.invokeAll(tasks)) {
+            List<Future<Double>> futures = new ArrayList<>(tasks.size());
+            for (Callable<Double> task : tasks) {
+                futures.add(executor.submit(task));
+            }
+            for (Future<Double> future : futures) {
                 Double result = future.get();
                 if (result != null) {
                     lastResult = result;
@@ -155,16 +181,6 @@ final class BenchmarkRunner {
             throw new IllegalStateException("Interrupted while updating aggregation tree", ie);
         } catch (ExecutionException ee) {
             throw new IllegalStateException("Failed to update aggregation tree", ee.getCause());
-        } finally {
-            pool.shutdown();
-            try {
-                if (!pool.awaitTermination(30, TimeUnit.SECONDS)) {
-                    pool.shutdownNow();
-                }
-            } catch (InterruptedException ie) {
-                pool.shutdownNow();
-                Thread.currentThread().interrupt();
-            }
         }
     }
 

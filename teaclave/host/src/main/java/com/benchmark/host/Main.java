@@ -7,6 +7,7 @@ import org.apache.teaclave.javasdk.host.EnclaveType;
 
 import java.util.Arrays;
 import java.util.Iterator;
+import java.util.stream.IntStream;
 
 public final class Main {
 
@@ -28,6 +29,9 @@ public final class Main {
                 Arrays.stream(weakThreadCounts).min().orElse(Integer.MAX_VALUE),
                 Arrays.stream(strongThreadCounts).min().orElse(Integer.MAX_VALUE)));
         // Use the smallest configured thread count to derive the baseline per-thread workload.
+        int maxThreads = Math.max(calibrationThreads,
+                IntStream.concat(Arrays.stream(weakThreadCounts), Arrays.stream(strongThreadCounts))
+                        .max().orElse(calibrationThreads));
 
         Enclave enclave = EnclaveFactory.create(enclaveType);
         Iterator<Service> services = enclave.load(Service.class);
@@ -39,19 +43,20 @@ public final class Main {
         try {
             BenchmarkRunner.CalibrationSettings calibrationSettings =
                     BenchmarkRunner.CalibrationSettings.fromEnvironment(sigma);
-            BenchmarkRunner runner = new BenchmarkRunner(service);
-            BenchmarkRunner.CalibratedWorkload workload =
-                    runner.calibrate(calibrationSettings, calibrationThreads);
-            var weakResults =
-                    runner.runWeakScaling(workload, weakThreadCounts, calibrationSettings.getMeasureIterations());
-            var strongResults =
-                    runner.runStrongScaling(workload, strongThreadCounts, calibrationSettings.getMeasureIterations());
-            BenchmarkRunner.BenchmarkSummary summary =
-                    new BenchmarkRunner.BenchmarkSummary(calibrationSettings, enclaveType.name(), workload,
-                            weakThreadCounts, weakResults, strongThreadCounts, strongResults);
+            try (BenchmarkRunner runner = new BenchmarkRunner(service, maxThreads)) {
+                BenchmarkRunner.CalibratedWorkload workload =
+                        runner.calibrate(calibrationSettings, calibrationThreads);
+                var weakResults =
+                        runner.runWeakScaling(workload, weakThreadCounts, calibrationSettings.getMeasureIterations());
+                var strongResults =
+                        runner.runStrongScaling(workload, strongThreadCounts, calibrationSettings.getMeasureIterations());
+                BenchmarkRunner.BenchmarkSummary summary =
+                        new BenchmarkRunner.BenchmarkSummary(calibrationSettings, enclaveType.name(), workload,
+                                weakThreadCounts, weakResults, strongThreadCounts, strongResults);
 
-            System.out.println("== Benchmark Summary ==");
-            System.out.println(summary.toPrettyString());
+                System.out.println("== Benchmark Summary ==");
+                System.out.println(summary.toPrettyString());
+            }
         } finally {
             enclave.destroy();
         }

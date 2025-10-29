@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
+import java.util.Arrays;
 import java.util.Iterator;
 import java.util.Random;
 
@@ -53,37 +54,42 @@ class BinaryAggregationBenchmarkTest {
 
     @Test
     void benchmarkMultipleIterations() {
-        BenchmarkRunner runner = new BenchmarkRunner(service, new Random(456L));
-        BenchmarkRunner.CalibrationSettings settings =
-                new BenchmarkRunner.CalibrationSettings(32, 1024, 5.0, 2, 1, 3, 0.25);
         int[] weakThreads = new int[]{1, 2, 4};
         int[] strongThreads = new int[]{1, 2, 4};
-        BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
-        var weakResults = runner.runWeakScaling(workload, weakThreads, 3);
-        var strongResults = runner.runStrongScaling(workload, strongThreads, 3);
-        BenchmarkRunner.BenchmarkSummary summary =
-                new BenchmarkRunner.BenchmarkSummary(settings, EnclaveType.MOCK_IN_JVM.name(),
-                        workload, weakThreads, weakResults, strongThreads, strongResults);
+        BenchmarkRunner.CalibrationSettings settings =
+                new BenchmarkRunner.CalibrationSettings(32, 1024, 5.0, 2, 1, 3, 0.25);
+        int maxThreads = Arrays.stream(new int[][]{weakThreads, strongThreads})
+                .flatMapToInt(Arrays::stream)
+                .max().orElse(4);
+        try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(456L), maxThreads)) {
+            BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
+            var weakResults = runner.runWeakScaling(workload, weakThreads, 3);
+            var strongResults = runner.runStrongScaling(workload, strongThreads, 3);
+            BenchmarkRunner.BenchmarkSummary summary =
+                    new BenchmarkRunner.BenchmarkSummary(settings, EnclaveType.MOCK_IN_JVM.name(),
+                            workload, weakThreads, weakResults, strongThreads, strongResults);
 
-        Assertions.assertEquals(weakThreads.length, weakResults.size());
-        Assertions.assertEquals(strongThreads.length, strongResults.size());
-        Assertions.assertTrue(summary.toPrettyString().contains("\"weakScaling\""));
-        weakResults.forEach(result -> Assertions.assertTrue(
-                Double.isFinite(result.getAverageMillis()),
-                "Weak scaling result should be finite"));
-        strongResults.forEach(result -> Assertions.assertTrue(
-                Double.isFinite(result.getAverageMillis()),
-                "Strong scaling result should be finite"));
+            Assertions.assertEquals(weakThreads.length, weakResults.size());
+            Assertions.assertEquals(strongThreads.length, strongResults.size());
+            Assertions.assertTrue(summary.toPrettyString().contains("\"weakScaling\""));
+            weakResults.forEach(result -> Assertions.assertTrue(
+                    Double.isFinite(result.getAverageMillis()),
+                    "Weak scaling result should be finite"));
+            strongResults.forEach(result -> Assertions.assertTrue(
+                    Double.isFinite(result.getAverageMillis()),
+                    "Strong scaling result should be finite"));
+        }
     }
 
     @Test
     void calibrationProducesWorkload() {
-        BenchmarkRunner runner = new BenchmarkRunner(service, new Random(123L));
         BenchmarkRunner.CalibrationSettings settings =
                 new BenchmarkRunner.CalibrationSettings(64, 4096, 10.0, 2, 1, 2, 0.0);
-        BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
-        Assertions.assertTrue(workload.getDataSize() >= 64, "Calibrated data size should grow from initial guess");
-        Assertions.assertTrue(workload.getAverageMillis() >= 0.0, "Average millis should be non-negative");
+        try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(123L), 4)) {
+            BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
+            Assertions.assertTrue(workload.getDataSize() >= 64, "Calibrated data size should grow from initial guess");
+            Assertions.assertTrue(workload.getAverageMillis() >= 0.0, "Average millis should be non-negative");
+        }
     }
 
     private static double[] createDataset(int size) {

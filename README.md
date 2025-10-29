@@ -96,6 +96,8 @@ Set environment variables to tweak the workload. The most relevant knobs are:
 
 The calibration pass uses the smallest configured thread count to fix the per-thread workload before running the weak/strong scaling sweeps.
 
+The `teaclave/run.sh` helper loads variables from `teaclave/.env`, then invokes the host JAR with `sudo env …` so SGX devices are accessible while the curated settings (including `TEACLAVE_BENCH_ENCLAVE_TYPE`) stay in effect. Tweak the entries in `.env` to change the run parameters.
+
 Example (force a 10 000-element workload on the TEE SDK):
 
 ```bash
