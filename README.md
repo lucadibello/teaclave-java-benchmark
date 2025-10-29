@@ -14,9 +14,9 @@ The enclave adapts the original `BinaryAggregationTreeBase` algorithm to use pri
 
 The host benchmark proceeds in three steps:
 
-1. **Calibration** – Grow the dataset until the average runtime meets the target budget (`TEACLAVE_BENCH_TARGET_US`, default 500 µs). This yields a baseline data size.
-2. **Weak scaling** – Multiply the calibrated data size by configurable scale factors to measure how latency grows with larger inputs.
-3. **Strong scaling** – Split a fixed overall workload into partitions and process each slice sequentially to estimate the per-partition cost of sharding the data.
+1. **Calibration** – Grow the dataset until the average runtime meets the target budget (`TEACLAVE_BENCH_TARGET_MS`, default 0.5 ms). This yields a baseline data size.
+2. **Weak scaling** – Increase the number of worker threads while keeping the per-thread workload fixed to observe aggregate growth.
+3. **Strong scaling** – Increase the number of worker threads while keeping the total workload fixed to observe how latency shrinks.
 
 Every run ends with a JSON summary like:
 
@@ -24,12 +24,12 @@ Every run ends with a JSON summary like:
 == Benchmark Summary ==
 {
   "calibration": { ... },
-  "weakScaling": [ {"scaleFactor": 1, ...}, ... ],
-  "strongScaling": [ {"partitions": 1, ...}, ... ]
+  "weakScaling": [ {"threads": 1, ...}, ... ],
+  "strongScaling": [ {"threads": 1, ...}, ... ]
 }
 ```
 
-Each `avgTimeMicros` entry is the average wall-clock time (including enclave ECALL overhead) to initialise the tree and stream a full batch of inserts.
+Each `avgTimeMillis` entry is the average wall-clock time (including enclave ECALL overhead) to initialise the tree and stream a full batch of inserts using a configurable pool of worker threads.
 
 ## Getting Started
 
@@ -86,13 +86,15 @@ Set environment variables to tweak the workload. The most relevant knobs are:
 |----------|---------|-------|
 | `TEACLAVE_BENCH_ENCLAVE_TYPE` | `MOCK_IN_JVM` | Use `TEE_SDK` to point at hardware once available. |
 | `TEACLAVE_BENCH_SIGMA` | `0.5` | Gaussian noise std-dev. |
-| `TEACLAVE_BENCH_WEAK_SCALES` | `1,2,4,8,16` | Comma-separated weak scaling factors. |
-| `TEACLAVE_BENCH_STRONG_SCALES` | `1,2,4,8,16` | Comma-separated partition counts. |
+| `TEACLAVE_BENCH_WEAK_SCALES` | `1,2,4,8,16,32` | Comma-separated thread counts used for weak scaling (per-thread workload fixed). |
+| `TEACLAVE_BENCH_STRONG_SCALES` | `1,2,4,8,16,32` | Comma-separated thread counts used for strong scaling (total workload fixed). |
 | `TEACLAVE_BENCH_INITIAL_SIZE` | `256` | Starting point for calibration. |
 | `TEACLAVE_BENCH_MAX_SIZE` | `65536` | Upper bound for calibration growth. |
-| `TEACLAVE_BENCH_TARGET_US` | `500` | Target average time in microseconds. Pair with the size bounds to lock the workload (e.g. `n = 10_000`). |
+| `TEACLAVE_BENCH_TARGET_MS` | `0.5` | Target average time in milliseconds. Pair with the size bounds to lock the workload (e.g. `n = 10_000`). |
 | `TEACLAVE_BENCH_WARMUP` | `3` | Warm-up iterations per measurement pass. |
 | `TEACLAVE_BENCH_MEASURE` | `5` | Measurement iterations per pass. |
+
+The calibration pass uses the smallest configured thread count to fix the per-thread workload before running the weak/strong scaling sweeps.
 
 Example (force a 10 000-element workload on the TEE SDK):
 
@@ -101,7 +103,7 @@ TEACLAVE_BENCH_ENCLAVE_TYPE=TEE_SDK \
 TEACLAVE_BENCH_SIGMA=0.6 \
 TEACLAVE_BENCH_INITIAL_SIZE=10000 \
 TEACLAVE_BENCH_MAX_SIZE=10000 \
-TEACLAVE_BENCH_TARGET_US=500 \
+TEACLAVE_BENCH_TARGET_MS=0.5 \
 java -cp ... com.benchmark.teaclave.host.Main
 ```
 
