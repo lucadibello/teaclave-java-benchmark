@@ -55,12 +55,12 @@ class BinaryAggregationBenchmarkTest {
     void benchmarkMultipleIterations() {
         int[] weakThreads = new int[]{1, 2, 4};
         int[] strongThreads = new int[]{1, 2, 4};
-        BenchmarkRunner.CalibrationSettings settings =
-                new BenchmarkRunner.CalibrationSettings(32, 1024, 5.0, 2, 1, 3, 0.25);
+        BenchmarkRunner.WorkloadSettings settings =
+                new BenchmarkRunner.WorkloadSettings(512, 1, 3, 0.25);
         try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(456L))) {
-            BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
-            var weakResults = runner.runWeakScaling(workload, weakThreads, 3);
-            var strongResults = runner.runStrongScaling(workload, strongThreads, 3);
+            BenchmarkRunner.Workload workload = runner.prepareWorkload(settings, 1);
+            var weakResults = runner.runWeakScaling(workload, weakThreads);
+            var strongResults = runner.runStrongScaling(workload, strongThreads);
             BenchmarkRunner.BenchmarkSummary summary =
                     new BenchmarkRunner.BenchmarkSummary(settings, EnclaveType.MOCK_IN_JVM.name(),
                             workload, weakThreads, weakResults, strongThreads, strongResults,
@@ -79,12 +79,12 @@ class BinaryAggregationBenchmarkTest {
     }
 
     @Test
-    void calibrationProducesWorkload() {
-        BenchmarkRunner.CalibrationSettings settings =
-                new BenchmarkRunner.CalibrationSettings(64, 4096, 10.0, 2, 1, 2, 0.0);
+    void workloadMatchesConfiguration() {
+        BenchmarkRunner.WorkloadSettings settings =
+                new BenchmarkRunner.WorkloadSettings(256, 1, 2, 0.0);
         try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(123L))) {
-            BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
-            Assertions.assertTrue(workload.getDataSize() >= 64, "Calibrated data size should grow from initial guess");
+            BenchmarkRunner.Workload workload = runner.prepareWorkload(settings, 1);
+            Assertions.assertEquals(256, workload.getDataSize(), "Workload size should match the configured size");
             Assertions.assertTrue(workload.getAverageMillis() >= 0.0, "Average millis should be non-negative");
         }
     }
@@ -92,11 +92,11 @@ class BinaryAggregationBenchmarkTest {
     @Test
     void weakScalingRespectsNativeParallelismLimit() {
         int[] weakThreads = new int[]{1, 2, 4};
-        BenchmarkRunner.CalibrationSettings settings =
-                new BenchmarkRunner.CalibrationSettings(32, 512, 5.0, 2, 1, 2, 0.1);
+        BenchmarkRunner.WorkloadSettings settings =
+                new BenchmarkRunner.WorkloadSettings(128, 1, 2, 0.1);
         try (BenchmarkRunner runner = new BenchmarkRunner(service, new Random(789L), 2)) {
-            BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings, 1);
-            var weakResults = runner.runWeakScaling(workload, weakThreads, 2);
+            BenchmarkRunner.Workload workload = runner.prepareWorkload(settings, 1);
+            var weakResults = runner.runWeakScaling(workload, weakThreads);
 
             WeakScalingResultLookup lookup = new WeakScalingResultLookup(weakResults);
             var twoThreads = lookup.byRequestedCount(2);

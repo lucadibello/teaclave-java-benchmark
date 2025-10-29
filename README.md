@@ -6,7 +6,7 @@ Benchmark suite for the Apache Teaclave Java SDK showcasing a differentially pri
 
 - `common/` – Enclave service contracts and shared DTOs annotated with `@EnclaveService`.
 - `enclave/` – Implementation of the aggregation tree plus the service exposed to the host. State is kept inside the enclave and updated via `initBinaryAggregation`, `addToBinaryAggregation`, and `getBinaryAggregationSum`.
-- `host/` – Benchmark runner that calibrates a workload, executes weak/strong scaling passes, and prints JSON metrics suitable for plotting.
+- `host/` – Benchmark runner that prepares a fixed workload, executes weak/strong scaling passes, and prints JSON metrics suitable for plotting.
 
 ## Benchmark Approach
 
@@ -14,7 +14,7 @@ The enclave adapts the original `BinaryAggregationTreeBase` algorithm to use pri
 
 The host benchmark proceeds in three steps:
 
-1. **Calibration** – Grow the dataset until the average runtime meets the target budget (`TEACLAVE_BENCH_TARGET_MS`, default 0.5 ms). This yields a baseline data size.
+1. **Baseline measurement** – Use the configured dataset size (`TEACLAVE_BENCH_DATA_SIZE`) and the minimum requested thread count to derive the per-thread workload, running a short warm-up before the timed passes.
 2. **Weak scaling** – Increase the number of worker threads while keeping the per-thread workload fixed to observe aggregate growth.
 3. **Strong scaling** – Increase the number of worker threads while keeping the total workload fixed to observe how latency shrinks.
 
@@ -23,8 +23,8 @@ The host benchmark proceeds in three steps:
 - CPU: Intel(R) Xeon(R) Gold 5315Y @ 3.20 GHz
 - SGX2 enclave (TEE SDK execution mode)
 
-The benchmark calibrated to a 1024-element workload at 0.5 ms per batch before
-running strong and weak scaling passes. All metrics below stem from `data/benchmark_results.json`;
+The benchmark used a 1024-element workload at 0.5 ms per batch before
+running the weak and strong scaling passes. All metrics below stem from `data/benchmark_results.json`;
 plots are generated with `scripts/generate_plots.py`.
 
 ### Strong scaling
@@ -139,14 +139,12 @@ Set environment variables to tweak the workload. The most relevant knobs are:
 | `TEACLAVE_BENCH_SIGMA` | `0.5` | Gaussian noise std-dev. |
 | `TEACLAVE_BENCH_WEAK_SCALES` | `1,2,4,8,16,32` | Comma-separated thread counts used for weak scaling (per-thread workload fixed). |
 | `TEACLAVE_BENCH_STRONG_SCALES` | `1,2,4,8,16,32` | Comma-separated thread counts used for strong scaling (total workload fixed). |
-| `TEACLAVE_BENCH_INITIAL_SIZE` | `256` | Starting point for calibration. |
-| `TEACLAVE_BENCH_MAX_SIZE` | `65536` | Upper bound for calibration growth. |
-| `TEACLAVE_BENCH_TARGET_MS` | `0.5` | Target average time in milliseconds. Pair with the size bounds to lock the workload (e.g. `n = 10_000`). |
-| `TEACLAVE_BENCH_WARMUP` | `3` | Warm-up iterations per measurement pass. |
-| `TEACLAVE_BENCH_MEASURE` | `5` | Measurement iterations per pass. |
+| `TEACLAVE_BENCH_DATA_SIZE` | `1024` | Number of values processed during the baseline and strong-scaling passes. |
+| `TEACLAVE_BENCH_WARMUP` | `3` | Warm-up iterations run before each timed pass. |
+| `TEACLAVE_BENCH_MEASURE` | `5` | Timed iterations per pass. |
 | `TEACLAVE_BENCH_NATIVE_PARALLELISM` | `32` | Max concurrent enclave calls when running on TEE hardware (ignored in MOCK mode). |
 
-The calibration pass uses the smallest configured thread count to fix the per-thread workload before running the weak/strong scaling sweeps.
+The baseline measurement uses the smallest configured thread count to fix the per-thread workload before running the weak/strong scaling sweeps.
 
 The `teaclave/run.sh` helper loads variables from `teaclave/.env`, then invokes the host JAR (with `sudo` only when Occlum is enabled) so SGX devices are accessible while the curated settings (including `TEACLAVE_BENCH_ENCLAVE_TYPE`) stay in effect. Tweak the entries in `.env` to change the run parameters. When targeting real SGX hardware (`TEE_SDK`), the benchmark throttles the number of concurrent enclave calls to `TEACLAVE_BENCH_NATIVE_PARALLELISM` to avoid exhausting TCS slots; the summary reports both the requested and executed thread counts.
 
@@ -155,15 +153,15 @@ Example (force a 10 000-element workload on the TEE SDK):
 ```bash
 TEACLAVE_BENCH_ENCLAVE_TYPE=TEE_SDK \
 TEACLAVE_BENCH_SIGMA=0.6 \
-TEACLAVE_BENCH_INITIAL_SIZE=10000 \
-TEACLAVE_BENCH_MAX_SIZE=10000 \
-TEACLAVE_BENCH_TARGET_MS=0.5 \
+TEACLAVE_BENCH_DATA_SIZE=10000 \
+TEACLAVE_BENCH_WARMUP=2 \
+TEACLAVE_BENCH_MEASURE=5 \
 java -cp ... com.benchmark.teaclave.host.Main
 ```
 
 ## Collecting Metrics
 
-Redirect stdout to capture the calibration/weak/strong metrics for plotting:
+Redirect stdout to capture the workload/weak/strong metrics for plotting:
 
 ```bash
 java -cp ... com.benchmark.teaclave.host.Main > benchmark-results.json

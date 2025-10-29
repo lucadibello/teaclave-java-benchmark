@@ -23,7 +23,7 @@ public final class Main {
         double sigma = resolveSigma();
         int[] weakThreadCounts = resolveThreadArray(ENV_WEAK_THREADS, new int[]{1, 2, 4, 8, 16, 32});
         int[] strongThreadCounts = resolveThreadArray(ENV_STRONG_THREADS, new int[]{1, 2, 4, 8, 16, 32});
-        int calibrationThreads = Math.max(1, Math.min(
+        int baselineThreads = Math.max(1, Math.min(
                 Arrays.stream(weakThreadCounts).min().orElse(Integer.MAX_VALUE),
                 Arrays.stream(strongThreadCounts).min().orElse(Integer.MAX_VALUE)));
         // Use the smallest configured thread count to derive the baseline per-thread workload.
@@ -37,17 +37,17 @@ public final class Main {
         Service service = services.next();
 
         try {
-            BenchmarkRunner.CalibrationSettings calibrationSettings =
-                    BenchmarkRunner.CalibrationSettings.fromEnvironment(sigma);
+            BenchmarkRunner.WorkloadSettings workloadSettings =
+                    BenchmarkRunner.WorkloadSettings.fromEnvironment(sigma);
             try (BenchmarkRunner runner = new BenchmarkRunner(service, nativeParallelism)) {
-                BenchmarkRunner.CalibratedWorkload workload =
-                        runner.calibrate(calibrationSettings, calibrationThreads);
+                BenchmarkRunner.Workload workload =
+                        runner.prepareWorkload(workloadSettings, baselineThreads);
                 var weakResults =
-                        runner.runWeakScaling(workload, weakThreadCounts, calibrationSettings.getMeasureIterations());
+                        runner.runWeakScaling(workload, weakThreadCounts);
                 var strongResults =
-                        runner.runStrongScaling(workload, strongThreadCounts, calibrationSettings.getMeasureIterations());
+                        runner.runStrongScaling(workload, strongThreadCounts);
                 BenchmarkRunner.BenchmarkSummary summary =
-                        new BenchmarkRunner.BenchmarkSummary(calibrationSettings, enclaveType.name(), workload,
+                        new BenchmarkRunner.BenchmarkSummary(workloadSettings, enclaveType.name(), workload,
                                 weakThreadCounts, weakResults, strongThreadCounts, strongResults, nativeParallelism);
 
                 System.out.println("== Benchmark Summary ==");
