@@ -79,6 +79,10 @@ def _plot_throughput(threads: np.ndarray, throughput: np.ndarray, title: str, ou
     ax.set_xlabel("Clients (threads)")
     ax.set_ylabel("Throughput [thousand ops/s]")
     ax.set_title(title)
+    desired_ticks = np.array([1, 2, 4, 8, 16, 32])
+    filtered_ticks = desired_ticks[desired_ticks <= threads.max()]
+    if filtered_ticks.size:
+        ax.set_xticks(filtered_ticks.tolist())
     ax.grid(True, linestyle="--", alpha=0.5)
     fig.tight_layout()
     fig.savefig(outfile, dpi=200)
@@ -92,12 +96,18 @@ def _plot_speedup_efficiency(metrics: dict[str, np.ndarray], title_prefix: str, 
     axes[0].set_xlabel("Clients (threads)")
     axes[0].set_ylabel("Throughput speedup")
     axes[0].set_title(f"{title_prefix} Speedup")
+    desired_ticks = np.array([1, 2, 4, 8, 16, 32])
+    filtered_ticks = desired_ticks[desired_ticks <= metrics["threads"].max()]
+    if filtered_ticks.size:
+        axes[0].set_xticks(filtered_ticks.tolist())
     axes[0].grid(True, linestyle="--", alpha=0.5)
 
     axes[1].plot(metrics["threads"], metrics["efficiency"], marker="o")
     axes[1].set_xlabel("Clients (threads)")
     axes[1].set_ylabel("Parallel efficiency")
     axes[1].set_title(f"{title_prefix} Efficiency")
+    if filtered_ticks.size:
+        axes[1].set_xticks(filtered_ticks.tolist())
     axes[1].grid(True, linestyle="--", alpha=0.5)
 
     fig.tight_layout()
