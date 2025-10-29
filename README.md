@@ -144,11 +144,9 @@ Set environment variables to tweak the workload. The most relevant knobs are:
 | `TEACLAVE_BENCH_MEASURE` | `5` | Timed iterations per pass. |
 | `TEACLAVE_BENCH_NATIVE_PARALLELISM` | `32` | Max concurrent enclave calls when running on TEE hardware (ignored in MOCK mode). |
 
-The baseline measurement uses the smallest configured thread count to fix the per-thread workload before running the weak/strong scaling sweeps.
+Tweak the entries in `.env` to change the run parameters. When targeting real SGX hardware (`TEE_SDK`), the benchmark throttles the number of concurrent enclave calls to `TEACLAVE_BENCH_NATIVE_PARALLELISM` to avoid exhausting TCS slots (it would crash the engine otherwise :) ).
 
-The `teaclave/run.sh` helper loads variables from `teaclave/.env`, then invokes the host JAR (with `sudo` only when Occlum is enabled) so SGX devices are accessible while the curated settings (including `TEACLAVE_BENCH_ENCLAVE_TYPE`) stay in effect. Tweak the entries in `.env` to change the run parameters. When targeting real SGX hardware (`TEE_SDK`), the benchmark throttles the number of concurrent enclave calls to `TEACLAVE_BENCH_NATIVE_PARALLELISM` to avoid exhausting TCS slots; the summary reports both the requested and executed thread counts.
-
-Example (force a 10 000-element workload on the TEE SDK):
+Otherwise, you can simply set environment variables inline as shown in the example below (force a 10 000-element workload on the TEE SDK):
 
 ```bash
 TEACLAVE_BENCH_ENCLAVE_TYPE=TEE_SDK \
@@ -166,5 +164,3 @@ Redirect stdout to capture the workload/weak/strong metrics for plotting:
 ```bash
 java -cp ... com.benchmark.teaclave.host.Main > benchmark-results.json
 ```
-
-The summary format is line-oriented JSON that can be imported into Python (pandas), R, gnuplot, or any other tooling to build charts.
