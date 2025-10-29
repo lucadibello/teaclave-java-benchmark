@@ -12,7 +12,7 @@ public class ServiceImpl implements Service {
     private BinaryAggregationTree aggregationTree;
     private int aggregationCapacity;
     private int aggregationIndex;
-    private double lastPrivateSum;
+    private Double lastPrivateSum;
 
     @Override
     public String sayHelloWorld() {

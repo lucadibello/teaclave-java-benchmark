@@ -11,7 +11,7 @@ import java.util.Random;
 
 final class BenchmarkRunner {
 
-    private static final double NANOS_IN_MICRO = 1_000.0;
+    private static final double NANOS_IN_MILLI = 1_000_000.0;
 
     private final Service service;
     private final Random random;
@@ -28,14 +28,14 @@ final class BenchmarkRunner {
     CalibratedWorkload calibrate(CalibrationSettings settings) {
         int size = settings.getInitialSize();
         int attempts = 0;
-        double averageMicros = 0.0;
+        double averageMillis = 0.0;
         double[] dataset = createDataset(size);
 
         while (size <= settings.getMaxSize()) {
-            averageMicros = measureAverageMicros(dataset, settings.getSigma(), settings.getWarmupIterations(),
+            averageMillis = measureAverageMillis(dataset, settings.getSigma(), settings.getWarmupIterations(),
                     settings.getMeasureIterations());
             attempts++;
-            if (averageMicros >= settings.getTargetMicros()) {
+            if (averageMillis >= settings.getTargetMillis()) {
                 break;
             }
             int nextSize = Math.max(size + 1, Math.min(settings.getMaxSize(), size * settings.getGrowthFactor()));
@@ -47,7 +47,7 @@ final class BenchmarkRunner {
         }
 
         return new CalibratedWorkload(size, settings.getSigma(), settings.getMeasureIterations(),
-                averageMicros, attempts);
+                averageMillis, attempts);
     }
 
     List<WeakScalingResult> runWeakScaling(CalibratedWorkload workload, int[] scaleFactors, int iterations) {
@@ -57,8 +57,8 @@ final class BenchmarkRunner {
         for (int scale : factors) {
             int dataSize = Math.max(1, workload.getDataSize() * scale);
             double[] dataset = createDataset(dataSize);
-            double averageMicros = measureAverageMicros(dataset, workload.getSigma(), 1, iterations);
-            results.add(new WeakScalingResult(scale, dataSize, iterations, averageMicros));
+            double averageMillis = measureAverageMillis(dataset, workload.getSigma(), 1, iterations);
+            results.add(new WeakScalingResult(scale, dataSize, iterations, averageMillis));
         }
         return results;
     }
@@ -73,7 +73,7 @@ final class BenchmarkRunner {
         List<StrongScalingResult> results = new ArrayList<>(partitions.length);
         for (int partitionCount : partitions) {
             double[][] slices = splitDataset(fullDataset, partitionCount);
-            double averageMicros = measureStrongAverageMicros(slices, workload.getSigma(), iterations);
+            double averageMillis = measureStrongAverageMillis(slices, workload.getSigma(), iterations);
             int minPartitionSize = Integer.MAX_VALUE;
             int maxPartitionSize = Integer.MIN_VALUE;
             for (double[] slice : slices) {
@@ -81,12 +81,12 @@ final class BenchmarkRunner {
                 maxPartitionSize = Math.max(maxPartitionSize, slice.length);
             }
             results.add(new StrongScalingResult(partitionCount, totalSize, minPartitionSize,
-                    maxPartitionSize, iterations, averageMicros));
+                    maxPartitionSize, iterations, averageMillis));
         }
         return results;
     }
 
-    private double measureAverageMicros(double[] dataset, double sigma, int warmupIterations, int measureIterations) {
+    private double measureAverageMillis(double[] dataset, double sigma, int warmupIterations, int measureIterations) {
         if (warmupIterations > 0) {
             double[] warmupCopy = Arrays.copyOf(dataset, dataset.length);
             executeIterations(warmupCopy, sigma, warmupIterations);
@@ -95,7 +95,7 @@ final class BenchmarkRunner {
         return executeIterations(measureCopy, sigma, measureIterations);
     }
 
-    private double measureStrongAverageMicros(double[][] slices, double sigma, int measureIterations) {
+    private double measureStrongAverageMillis(double[][] slices, double sigma, int measureIterations) {
         for (int i = 0; i < 1; i++) {
             executeStrongIteration(slices, sigma);
         }
@@ -105,7 +105,7 @@ final class BenchmarkRunner {
             lastResult = executeStrongIteration(slices, sigma);
         }
         long duration = System.nanoTime() - start;
-        return duration / (measureIterations * NANOS_IN_MICRO);
+        return duration / (measureIterations * NANOS_IN_MILLI);
     }
 
     private double executeIterations(double[] dataset, double sigma, int iterations) {
@@ -120,11 +120,11 @@ final class BenchmarkRunner {
             perturbDataset(dataset);
         }
         long duration = System.nanoTime() - start;
-        double averageMicros = duration / (iterations * NANOS_IN_MICRO);
+        double averageMillis = duration / (iterations * NANOS_IN_MILLI);
         if (Double.isNaN(lastResult)) {
             throw new IllegalStateException("Computation produced NaN");
         }
-        return averageMicros;
+        return averageMillis;
     }
 
     private double executeStrongIteration(double[][] slices, double sigma) {
@@ -178,6 +178,7 @@ final class BenchmarkRunner {
     static final class CalibrationSettings {
         private static final String ENV_INITIAL_SIZE = "TEACLAVE_BENCH_INITIAL_SIZE";
         private static final String ENV_MAX_SIZE = "TEACLAVE_BENCH_MAX_SIZE";
+        private static final String ENV_TARGET_MILLIS = "TEACLAVE_BENCH_TARGET_MS";
         private static final String ENV_TARGET_MICROS = "TEACLAVE_BENCH_TARGET_US";
         private static final String ENV_GROWTH_FACTOR = "TEACLAVE_BENCH_GROWTH_FACTOR";
         private static final String ENV_WARMUP = "TEACLAVE_BENCH_WARMUP";
@@ -185,7 +186,7 @@ final class BenchmarkRunner {
 
         private final int initialSize;
         private final int maxSize;
-        private final double targetMicros;
+        private final double targetMillis;
         private final int growthFactor;
         private final int warmupIterations;
         private final int measureIterations;
@@ -193,14 +194,14 @@ final class BenchmarkRunner {
 
         CalibrationSettings(int initialSize,
                             int maxSize,
-                            double targetMicros,
+                            double targetMillis,
                             int growthFactor,
                             int warmupIterations,
                             int measureIterations,
                             double sigma) {
             this.initialSize = initialSize;
             this.maxSize = maxSize;
-            this.targetMicros = targetMicros;
+            this.targetMillis = targetMillis;
             this.growthFactor = growthFactor;
             this.warmupIterations = warmupIterations;
             this.measureIterations = measureIterations;
@@ -210,11 +211,18 @@ final class BenchmarkRunner {
         static CalibrationSettings fromEnvironment(double sigma) {
             int initialSize = parseIntEnv(ENV_INITIAL_SIZE, 256);
             int maxSize = parseIntEnv(ENV_MAX_SIZE, 1 << 16);
-            double targetMicros = parseDoubleEnv(ENV_TARGET_MICROS, 500.0);
+            Double targetMillisEnv = parseOptionalDoubleEnv(ENV_TARGET_MILLIS);
+            double targetMillis;
+            if (targetMillisEnv != null) {
+                targetMillis = targetMillisEnv;
+            } else {
+                double targetMicros = parseDoubleEnv(ENV_TARGET_MICROS, 500.0);
+                targetMillis = targetMicros / 1_000.0;
+            }
             int growthFactor = parseIntEnv(ENV_GROWTH_FACTOR, 2);
             int warmupIterations = parseIntEnv(ENV_WARMUP, 3);
             int measureIterations = parseIntEnv(ENV_MEASURE, 5);
-            return new CalibrationSettings(initialSize, maxSize, targetMicros, growthFactor,
+            return new CalibrationSettings(initialSize, maxSize, targetMillis, growthFactor,
                     warmupIterations, measureIterations, sigma);
         }
 
@@ -226,8 +234,8 @@ final class BenchmarkRunner {
             return maxSize;
         }
 
-        double getTargetMicros() {
-            return targetMicros;
+        double getTargetMillis() {
+            return targetMillis;
         }
 
         int getGrowthFactor() {
@@ -269,21 +277,33 @@ final class BenchmarkRunner {
                 throw new IllegalArgumentException("Unable to parse double from " + key + "=" + raw, nfe);
             }
         }
+
+        private static Double parseOptionalDoubleEnv(String key) {
+            String raw = System.getenv(key);
+            if (raw == null || raw.isEmpty()) {
+                return null;
+            }
+            try {
+                return Double.parseDouble(raw.trim());
+            } catch (NumberFormatException nfe) {
+                throw new IllegalArgumentException("Unable to parse double from " + key + "=" + raw, nfe);
+            }
+        }
     }
 
     static final class CalibratedWorkload {
         private final int dataSize;
         private final double sigma;
         private final int iterations;
-        private final double averageMicros;
+        private final double averageMillis;
         private final int attempts;
 
         CalibratedWorkload(int dataSize, double sigma, int iterations,
-                           double averageMicros, int attempts) {
+                           double averageMillis, int attempts) {
             this.dataSize = dataSize;
             this.sigma = sigma;
             this.iterations = iterations;
-            this.averageMicros = averageMicros;
+            this.averageMillis = averageMillis;
             this.attempts = attempts;
         }
 
@@ -299,8 +319,8 @@ final class BenchmarkRunner {
             return iterations;
         }
 
-        double getAverageMicros() {
-            return averageMicros;
+        double getAverageMillis() {
+            return averageMillis;
         }
 
         int getAttempts() {
@@ -313,7 +333,7 @@ final class BenchmarkRunner {
                     "dataSize=" + dataSize +
                     ", sigma=" + sigma +
                     ", iterations=" + iterations +
-                    ", avgTimeMicros=" + String.format("%.2f", averageMicros) +
+                    ", avgTimeMillis=" + String.format("%.3f", averageMillis) +
                     ", attempts=" + attempts +
                     '}';
         }
@@ -323,13 +343,13 @@ final class BenchmarkRunner {
         private final int scaleFactor;
         private final int dataSize;
         private final int iterations;
-        private final double averageMicros;
+        private final double averageMillis;
 
-        WeakScalingResult(int scaleFactor, int dataSize, int iterations, double averageMicros) {
+        WeakScalingResult(int scaleFactor, int dataSize, int iterations, double averageMillis) {
             this.scaleFactor = scaleFactor;
             this.dataSize = dataSize;
             this.iterations = iterations;
-            this.averageMicros = averageMicros;
+            this.averageMillis = averageMillis;
         }
 
         int getScaleFactor() {
@@ -344,8 +364,8 @@ final class BenchmarkRunner {
             return iterations;
         }
 
-        double getAverageMicros() {
-            return averageMicros;
+        double getAverageMillis() {
+            return averageMillis;
         }
     }
 
@@ -355,16 +375,16 @@ final class BenchmarkRunner {
         private final int minPartitionSize;
         private final int maxPartitionSize;
         private final int iterations;
-        private final double averageMicros;
+        private final double averageMillis;
 
         StrongScalingResult(int partitionCount, int totalSize, int minPartitionSize,
-                            int maxPartitionSize, int iterations, double averageMicros) {
+                            int maxPartitionSize, int iterations, double averageMillis) {
             this.partitionCount = partitionCount;
             this.totalSize = totalSize;
             this.minPartitionSize = minPartitionSize;
             this.maxPartitionSize = maxPartitionSize;
             this.iterations = iterations;
-            this.averageMicros = averageMicros;
+            this.averageMillis = averageMillis;
         }
 
         int getPartitionCount() {
@@ -387,8 +407,8 @@ final class BenchmarkRunner {
             return iterations;
         }
 
-        double getAverageMicros() {
-            return averageMicros;
+        double getAverageMillis() {
+            return averageMillis;
         }
     }
 
@@ -422,17 +442,17 @@ final class BenchmarkRunner {
             sb.append("{\n");
             sb.append("  \"calibration\": {\n");
             sb.append(String.format(Locale.US,
-                    "    \"dataSize\": %d,%n    \"sigma\": %.6f,%n    \"iterations\": %d,%n    \"avgTimeMicros\": %.2f,%n    \"attempts\": %d%n",
+                    "    \"dataSize\": %d,%n    \"sigma\": %.6f,%n    \"iterations\": %d,%n    \"avgTimeMillis\": %.3f,%n    \"attempts\": %d%n",
                     calibration.getDataSize(), calibration.getSigma(), calibration.getIterations(),
-                    calibration.getAverageMicros(), calibration.getAttempts()));
+                    calibration.getAverageMillis(), calibration.getAttempts()));
             sb.append("  },\n");
             sb.append("  \"weakScaling\": [\n");
             for (int i = 0; i < weakScalingResults.size(); i++) {
                 WeakScalingResult result = weakScalingResults.get(i);
                 sb.append(String.format(Locale.US,
-                        "    {\"scaleFactor\": %d, \"dataSize\": %d, \"iterations\": %d, \"avgTimeMicros\": %.2f}",
+                        "    {\"scaleFactor\": %d, \"dataSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
                         result.getScaleFactor(), result.getDataSize(), result.getIterations(),
-                        result.getAverageMicros()));
+                        result.getAverageMillis()));
                 if (i < weakScalingResults.size() - 1) {
                     sb.append(",");
                 }
@@ -443,9 +463,9 @@ final class BenchmarkRunner {
             for (int i = 0; i < strongScalingResults.size(); i++) {
                 StrongScalingResult result = strongScalingResults.get(i);
                 sb.append(String.format(Locale.US,
-                        "    {\"partitions\": %d, \"totalSize\": %d, \"minPartitionSize\": %d, \"maxPartitionSize\": %d, \"iterations\": %d, \"avgTimeMicros\": %.2f}",
+                        "    {\"partitions\": %d, \"totalSize\": %d, \"minPartitionSize\": %d, \"maxPartitionSize\": %d, \"iterations\": %d, \"avgTimeMillis\": %.3f}",
                         result.getPartitionCount(), result.getTotalSize(), result.getMinPartitionSize(),
-                        result.getMaxPartitionSize(), result.getIterations(), result.getAverageMicros()));
+                        result.getMaxPartitionSize(), result.getIterations(), result.getAverageMillis()));
                 if (i < strongScalingResults.size() - 1) {
                     sb.append(",");
                 }

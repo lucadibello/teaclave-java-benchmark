@@ -68,10 +68,10 @@ class BinaryAggregationBenchmarkTest {
         Assertions.assertEquals(strongScales.length, strongResults.size());
         Assertions.assertTrue(summary.toPrettyString().contains("\"weakScaling\""));
         weakResults.forEach(result -> Assertions.assertTrue(
-                Double.isFinite(result.getAverageMicros()),
+                Double.isFinite(result.getAverageMillis()),
                 "Weak scaling result should be finite"));
         strongResults.forEach(result -> Assertions.assertTrue(
-                Double.isFinite(result.getAverageMicros()),
+                Double.isFinite(result.getAverageMillis()),
                 "Strong scaling result should be finite"));
     }
 
@@ -82,7 +82,7 @@ class BinaryAggregationBenchmarkTest {
                 new BenchmarkRunner.CalibrationSettings(64, 4096, 10.0, 2, 1, 2, 0.0);
         BenchmarkRunner.CalibratedWorkload workload = runner.calibrate(settings);
         Assertions.assertTrue(workload.getDataSize() >= 64, "Calibrated data size should grow from initial guess");
-        Assertions.assertTrue(workload.getAverageMicros() >= 0.0, "Average micros should be non-negative");
+        Assertions.assertTrue(workload.getAverageMillis() >= 0.0, "Average millis should be non-negative");
     }
 
     private static double[] createDataset(int size) {

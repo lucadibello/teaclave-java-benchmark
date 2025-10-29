@@ -1,113 +1,89 @@
 package com.benchmark.enclave.dp;
 
+import java.io.Serializable;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Random;
 
-/**
- * Binary aggregation tree that injects Gaussian noise per node and keeps track of
- * the private sum while values are inserted sequentially.
- */
-public final class BinaryAggregationTree {
+public class BinaryAggregationTree implements Serializable {
+    private Double curPrivateSum = 0.00;
+    private final ArrayList<Double> tree;
+    private static int height = 0;
 
-    private final double[] tree;
-    private final int height;
-    private final int numLeaves;
-    private final int maxValues;
-    private double curPrivateSum;
-
-    public BinaryAggregationTree(int numberOfValues, double sigma) {
-        if (numberOfValues <= 0) {
-            throw new IllegalArgumentException("numberOfValues must be positive");
-        }
-        this.height = computeHeight(numberOfValues);
-        this.numLeaves = 1 << this.height;
-        this.maxValues = numberOfValues;
-        this.tree = initialiseTree(sigma);
-        this.curPrivateSum = 0.0;
+    public BinaryAggregationTree(int n, double sigma) {
+        tree = initializeTree(n, sigma);
     }
 
-    public double getTotalSum() {
+    public Double getTotalSum() {
         return curPrivateSum;
     }
 
-    public double addToTree(int index, double value) {
-        if (index < 0 || index >= maxValues) {
-            throw new IllegalArgumentException("index out of range for tree: " + index);
-        }
-
-        int nodeIndex = numLeaves - 1 + index;
-
-        while (nodeIndex > 0) {
-            tree[nodeIndex] += value;
-            nodeIndex = (nodeIndex - 1) / 2;
-        }
-        tree[0] += value;
-
-        double privateSum = 0.0;
-        String indexBinary = toBinaryString(index + 1, height + 1);
-        String pathBinary = toBinaryString(index, height);
-
-        int currentIndex = 0;
-        for (int level = 0; level < height + 1; level++) {
-            char vertexBit = indexBinary.charAt(level);
-            if (vertexBit == '1') {
-                int leftSibling = (currentIndex % 2 == 0) ? currentIndex - 1 : currentIndex;
-                if (currentIndex == 0) {
-                    leftSibling = 0;
-                }
-                privateSum += tree[leftSibling];
-            }
-            if (level < height) {
-                char pathBit = pathBinary.charAt(level);
-                int leftChild = 2 * currentIndex + 1;
-                currentIndex = (pathBit == '0') ? leftChild : leftChild + 1;
-            }
-        }
-
-        curPrivateSum = privateSum;
-        return privateSum;
-    }
-
-    public static double hierarchicalPerturbationEnc(double[] data, double sigma) {
-        BinaryAggregationTree tree = new BinaryAggregationTree(data.length, sigma);
-        for (int i = 0; i < data.length; i++) {
-            tree.addToTree(i, data[i]);
-        }
-        return tree.getTotalSum();
-    }
-
-    private double[] initialiseTree(double sigma) {
+    private ArrayList<Double> initializeTree(int n, double sigma) {
+        height = (int) Math.ceil(Math.log(n) / Math.log(2));
+        int numLeaves = (int) Math.pow(2, height);
+        ArrayList<Double> tree = new ArrayList<>();
         int treeSize = 2 * numLeaves - 1;
-        double[] values = new double[treeSize];
-        Random random = new Random();
-        for (int i = 0; i < treeSize; i++) {
-            values[i] = random.nextGaussian() * sigma;
+        Random rand = new Random();
+        for (int j = 0; j < treeSize; j++) {
+            Double noise = rand.nextGaussian() * sigma;
+            tree.add(noise);
         }
-        return values;
+        return tree;
     }
 
-    private static int computeHeight(int n) {
-        int height = 0;
-        int capacity = 1;
-        while (capacity < n) {
-            capacity <<= 1;
-            height++;
+    public Double addToTree(int i, Double value) {
+        int numLeaves = (tree.size() + 1) / 2;
+        {
+            int nodeIndex = numLeaves - 1 + i;
+
+            while (nodeIndex > 0) {
+                Double curVal = tree.get(nodeIndex);
+                tree.set(nodeIndex, curVal + value);
+                nodeIndex = (nodeIndex - 1) / 2;
+            }
+            tree.set(nodeIndex, tree.get(nodeIndex) + value);
         }
-        return height;
+
+        double sPriv = 0.00;
+        String indexBinaryRepr = Integer.toBinaryString(i + 1);
+        indexBinaryRepr = String.format("%" + (height + 1) + "s", indexBinaryRepr).replace(' ', '0');
+        String pathBinary = Integer.toBinaryString(i);
+        pathBinary = String.format("%" + height + "s", pathBinary).replace(' ', '0');
+
+        int nodeIndex = 0;
+        for (int j = 0; j < height + 1; j++) {
+            char vertexBit = indexBinaryRepr.charAt(j);
+
+            if (vertexBit == '1') {
+                int leftSibling = (nodeIndex % 2 == 0) ? nodeIndex - 1 : nodeIndex;
+
+                if (nodeIndex == 0) {
+                    leftSibling = nodeIndex;
+                }
+
+                sPriv = sPriv + tree.get(leftSibling);
+            }
+            if (j < height) {
+                char pathBit = pathBinary.charAt(j);
+                int leftChild = 2 * nodeIndex + 1;
+                int rightChild = 2 * nodeIndex + 2;
+
+                nodeIndex = (pathBit == '0') ? leftChild : rightChild;
+            }
+
+        }
+        curPrivateSum = sPriv;
+        return sPriv;
     }
 
-    private static String toBinaryString(int value, int width) {
-        if (width <= 0) {
-            return "";
+    public static Double hierarchicalPerturbationEnc(ArrayList<Double> data, BinaryAggregationTree bat) {
+        for (int i = 0; i < data.size(); i++) {
+            bat.addToTree(i, data.get(i));
         }
-        String binary = Integer.toBinaryString(value);
-        if (binary.length() >= width) {
-            return binary.substring(binary.length() - width);
-        }
-        StringBuilder builder = new StringBuilder(width);
-        for (int i = binary.length(); i < width; i++) {
-            builder.append('0');
-        }
-        builder.append(binary);
-        return builder.toString();
+        return bat.getTotalSum();
+    }
+
+    public List<Double> getTree() {
+        return new ArrayList<>(tree);
     }
 }
