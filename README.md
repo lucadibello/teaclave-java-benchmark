@@ -93,7 +93,7 @@ Set environment variables to tweak the workload. The most relevant knobs are:
 | `TEACLAVE_BENCH_TARGET_MS` | `0.5` | Target average time in milliseconds. Pair with the size bounds to lock the workload (e.g. `n = 10_000`). |
 | `TEACLAVE_BENCH_WARMUP` | `3` | Warm-up iterations per measurement pass. |
 | `TEACLAVE_BENCH_MEASURE` | `5` | Measurement iterations per pass. |
-| `TEACLAVE_BENCH_NATIVE_PARALLELISM` | `1` | Max concurrent enclave calls when running on TEE hardware (ignored in MOCK mode). |
+| `TEACLAVE_BENCH_NATIVE_PARALLELISM` | `32` | Max concurrent enclave calls when running on TEE hardware (ignored in MOCK mode). |
 
 The calibration pass uses the smallest configured thread count to fix the per-thread workload before running the weak/strong scaling sweeps.
 

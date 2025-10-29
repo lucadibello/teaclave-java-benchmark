@@ -15,7 +15,7 @@ fi
 
 ENABLE_OCCLUM="${ENABLE_OCCLUM:-false}"
 
-mvn -Pnative clean package -DskipTests
+#mvn -Pnative clean package -DskipTests
 
 if [[ -n "${JAVA_HOME:-}" ]]; then
   JAVA_BIN="${JAVA_HOME}/bin/java"
