@@ -159,7 +159,9 @@ final class BenchmarkRunner {
         List<Future<?>> futures = new ArrayList<>(effectiveThreads);
 
         // create new executor with specified thread count limit for this call
+        System.out.println("Creating executor with " + effectiveThreads + " threads");
         ExecutorService localExecutor = createExecutor(effectiveThreads);
+        System.out.println("Done. Sending requests...");
         try {
             for (int t = 0; t < effectiveThreads; t++) {
                 int start = t * chunkSize;
@@ -236,8 +238,7 @@ final class BenchmarkRunner {
             }
         };
 
-        // Use provided maxThreads as the maximumPoolSize so benchmarking can exercise higher
-        // thread counts (e.g. 1,2,4,8,16,32) even on machines with fewer cores.
+        // create executor with specified number of workers
         ThreadPoolExecutor boundedCached = new ThreadPoolExecutor(
                 0,
                 maxThreads,
@@ -245,7 +246,6 @@ final class BenchmarkRunner {
                 TimeUnit.SECONDS,
                 new SynchronousQueue<>(),
                 threadFactory);
-        boundedCached.allowCoreThreadTimeOut(true);
         return boundedCached;
     }
 
