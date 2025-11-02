@@ -4,8 +4,6 @@ import org.apache.teaclave.javasdk.common.annotations.EnclaveService;
 
 @EnclaveService
 public interface Service {
-    String sayHelloWorld();
-    Ack pushValue(int value);
     void initBinaryAggregation(int n, double sigma);
     double addToBinaryAggregation(double value);
     double getBinaryAggregationSum();

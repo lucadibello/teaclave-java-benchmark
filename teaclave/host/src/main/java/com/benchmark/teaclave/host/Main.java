@@ -20,14 +20,18 @@ public final class Main {
 
     public static void main(String[] args) throws Exception {
         EnclaveType enclaveType = resolveEnclaveType(args);
+        System.out.println("Using enclave type: " + enclaveType.name());
         double sigma = resolveSigma();
+
+        // resolve thread counts
         int[] weakThreadCounts = resolveThreadArray(ENV_WEAK_THREADS, new int[]{1, 2, 4, 8, 16, 32});
         int[] strongThreadCounts = resolveThreadArray(ENV_STRONG_THREADS, new int[]{1, 2, 4, 8, 16, 32});
+
+        // compute baseline threads for workload preparation
         int baselineThreads = Math.max(1, Math.min(
                 Arrays.stream(weakThreadCounts).min().orElse(Integer.MAX_VALUE),
-                Arrays.stream(strongThreadCounts).min().orElse(Integer.MAX_VALUE)));
-        // Use the smallest configured thread count to derive the baseline per-thread workload.
-        int nativeParallelism = resolveNativeParallelism(enclaveType);
+                Arrays.stream(strongThreadCounts).min().orElse(Integer.MAX_VALUE)
+            ));
 
         Enclave enclave = EnclaveFactory.create(enclaveType);
         Iterator<Service> services = enclave.load(Service.class);
@@ -37,19 +41,29 @@ public final class Main {
         Service service = services.next();
 
         try {
-            BenchmarkRunner.WorkloadSettings workloadSettings =
-                    BenchmarkRunner.WorkloadSettings.fromEnvironment(sigma);
-            try (BenchmarkRunner runner = new BenchmarkRunner(service, nativeParallelism)) {
-                BenchmarkRunner.Workload workload =
-                        runner.prepareWorkload(workloadSettings, baselineThreads);
-                var weakResults =
-                        runner.runWeakScaling(workload, weakThreadCounts);
-                var strongResults =
-                        runner.runStrongScaling(workload, strongThreadCounts);
-                BenchmarkRunner.BenchmarkSummary summary =
-                        new BenchmarkRunner.BenchmarkSummary(workloadSettings, enclaveType.name(), workload,
-                                weakThreadCounts, weakResults, strongThreadCounts, strongResults, nativeParallelism);
+            WorkloadSettings workloadSettings = WorkloadSettings.fromEnvironment(sigma);
+            try (BenchmarkRunner runner = new BenchmarkRunner(service)) {
+                // create workload based on settings
+                Workload workload = runner.prepareWorkload(workloadSettings, baselineThreads);
+                System.out.println("Prepared workload on baseline threads: " + baselineThreads);
 
+                // run both scaling benchmarks
+                var weakResults = runner.runWeakScaling(workload, weakThreadCounts);
+                var strongResults = runner.runStrongScaling(workload, strongThreadCounts);
+
+                // create summary
+                BenchmarkSummary summary = new BenchmarkSummary(
+                    workloadSettings,
+                    enclaveType.name(),
+                    workload,
+                    weakThreadCounts,
+                    weakResults,
+                    strongThreadCounts,
+                    strongResults,
+                    baselineThreads
+                );
+
+                // print it
                 System.out.println("== Benchmark Summary ==");
                 System.out.println(summary.toPrettyString());
             }
@@ -103,22 +117,5 @@ public final class Main {
             }
         }
         return values;
-    }
-
-    private static int resolveNativeParallelism(EnclaveType enclaveType) {
-        String raw = System.getenv("TEACLAVE_BENCH_NATIVE_PARALLELISM");
-        int defaultValue = enclaveType == EnclaveType.MOCK_IN_JVM ? Integer.MAX_VALUE : 4;
-        if (raw == null || raw.isEmpty()) {
-            return defaultValue;
-        }
-        try {
-            int value = Integer.parseInt(raw.trim());
-            if (value <= 0) {
-                return defaultValue;
-            }
-            return value;
-        } catch (NumberFormatException nfe) {
-            throw new IllegalArgumentException("Unable to parse TEACLAVE_BENCH_NATIVE_PARALLELISM=" + raw, nfe);
-        }
     }
 }

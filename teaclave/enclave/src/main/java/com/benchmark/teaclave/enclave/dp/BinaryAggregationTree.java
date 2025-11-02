@@ -1,4 +1,4 @@
-package com.benchmark.enclave.dp;
+package com.benchmark.teaclave.enclave.dp;
 
 import java.io.Serializable;
 import java.util.ArrayList;
