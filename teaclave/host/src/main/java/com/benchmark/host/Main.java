@@ -26,6 +26,7 @@ public final class Main {
         int baselineThreads = Math.max(1, Math.min(
                 Arrays.stream(weakThreadCounts).min().orElse(Integer.MAX_VALUE),
                 Arrays.stream(strongThreadCounts).min().orElse(Integer.MAX_VALUE)));
+
         // Use the smallest configured thread count to derive the baseline per-thread workload.
         int nativeParallelism = resolveNativeParallelism(enclaveType);
 
@@ -42,6 +43,7 @@ public final class Main {
             try (BenchmarkRunner runner = new BenchmarkRunner(service, nativeParallelism)) {
                 BenchmarkRunner.Workload workload =
                         runner.prepareWorkload(workloadSettings, baselineThreads);
+
                 var weakResults =
                         runner.runWeakScaling(workload, weakThreadCounts);
                 var strongResults =

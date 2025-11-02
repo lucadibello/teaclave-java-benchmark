@@ -6,12 +6,10 @@
     <version>1.0-SNAPSHOT</version>
     <name>teaclave</name>
     <url>http://maven.apache.org</url>
-<properties>
-    <maven.compiler.source>11</maven.compiler.source>
-    <maven.compiler.target>11</maven.compiler.target>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <junit.jupiter.version>5.10.2</junit.jupiter.version>
-    <junit.platform.version>1.10.2</junit.platform.version>
+    <properties>
+        <maven.compiler.source>11</maven.compiler.source>
+        <maven.compiler.target>11</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <org.apache.teaclave.javasdk.platform>MOCK_IN_SVM:TEE_SDK:EMBEDDED_LIB_OS</org.apache.teaclave.javasdk.platform>
     </properties>
     <dependencyManagement>
@@ -45,36 +43,6 @@
                 <groupId>com.benchmark.teaclave</groupId>
                 <artifactId>host</artifactId>
                 <version>1.0-SNAPSHOT</version>
-            </dependency>
-            <dependency>
-                <groupId>org.junit.jupiter</groupId>
-                <artifactId>junit-jupiter-api</artifactId>
-                <version>5.7.1</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.junit.platform</groupId>
-                <artifactId>junit-platform-engine</artifactId>
-                <version>1.8.2</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.junit.platform</groupId>
-                <artifactId>junit-platform-launcher</artifactId>
-                <version>1.8.2</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.junit.jupiter</groupId>
-                <artifactId>junit-jupiter-engine</artifactId>
-                <version>5.6.2</version>
-                <scope>test</scope>
-            </dependency>
-            <dependency>
-                <groupId>org.junit-pioneer</groupId>
-                <artifactId>junit-pioneer</artifactId>
-                <version>1.5.0</version>
-                <scope>test</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>
