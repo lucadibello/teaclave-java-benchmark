@@ -15,22 +15,26 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-final class BenchmarkRunner implements AutoCloseable {
+final class BenchmarkRunner {
 
     private static final double NANOS_IN_MILLI = 1_000_000.0;
 
     private final Service service;
     private final Random random;
-    private final ExecutorService executor;
 
     public BenchmarkRunner(Service service) {
         this(service, new Random(0L));
     }
 
     public BenchmarkRunner(Service service, Random random) {
+        // delegate to the new ctor that accepts a maxThreads bound (default = available processors)
+        this(service, random, Math.max(1, Runtime.getRuntime().availableProcessors()));
+    }
+
+    // New constructor: allows caller to specify the maximum number of worker threads that the executor can create.
+    public BenchmarkRunner(Service service, Random random, int maxThreads) {
         this.service = service;
         this.random = random;
-        this.executor = createExecutor(); // FIXME: create executor with appropriate number of threads
     }
 
     public Workload prepareWorkload(WorkloadSettings settings, int threadCount) {
@@ -153,52 +157,73 @@ final class BenchmarkRunner implements AutoCloseable {
         service.initBinaryAggregation(dataset.length, sigma);
         int chunkSize = Math.max(1, (dataset.length + effectiveThreads - 1) / effectiveThreads);
         List<Future<?>> futures = new ArrayList<>(effectiveThreads);
-        for (int t = 0; t < effectiveThreads; t++) {
-            int start = t * chunkSize;
-            int end = Math.min(dataset.length, start + chunkSize);
-            if (start >= end) {
-                break;
-            }
-            final int sliceStart = start;
-            final int sliceEnd = end;
-            futures.add(executor.submit(() -> {
-                for (int idx = sliceStart; idx < sliceEnd; idx++) {
-                    service.addToBinaryAggregation(dataset[idx]);
+
+        // create new executor with specified thread count limit for this call
+        ExecutorService localExecutor = createExecutor(effectiveThreads);
+        try {
+            for (int t = 0; t < effectiveThreads; t++) {
+                int start = t * chunkSize;
+                int end = Math.min(dataset.length, start + chunkSize);
+                if (start >= end) {
+                    break;
                 }
-            }));
-        }
+                final int sliceStart = start;
+                final int sliceEnd = end;
+                futures.add(localExecutor.submit(() -> {
+                    for (int idx = sliceStart; idx < sliceEnd; idx++) {
+                        service.addToBinaryAggregation(dataset[idx]);
+                    }
+                }));
+            }
 
-        Throwable failure = null;
-        for (Future<?> future : futures) {
+            Throwable failure = null;
+            for (Future<?> future : futures) {
+                try {
+                    future.get();
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    cancelFutures(futures);
+                    // stop running tasks in this local executor
+                    localExecutor.shutdownNow();
+                    throw new IllegalStateException("Benchmark interrupted", ie);
+                } catch (ExecutionException ee) {
+                    failure = ee.getCause() == null ? ee : ee.getCause();
+                    cancelFutures(futures);
+                    // try again
+                    localExecutor.shutdownNow();
+                    break;
+                }
+            }
+
+            if (failure != null) {
+                if (failure instanceof RuntimeException) {
+                    throw (RuntimeException) failure;
+                }
+                throw new IllegalStateException("Worker thread failed", failure);
+            }
+
+            double total = service.getBinaryAggregationSum();
+            perturbDataset(dataset);
+            if (Double.isNaN(total)) {
+                throw new IllegalStateException("Aggregation sum produced NaN");
+            }
+            return total;
+        } finally {
+            // Ensure the per-call executor is shut down and does not leak threads.
+            localExecutor.shutdown();
             try {
-                future.get();
+                if (!localExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                    localExecutor.shutdownNow();
+                }
             } catch (InterruptedException ie) {
+                localExecutor.shutdownNow();
                 Thread.currentThread().interrupt();
-                cancelFutures(futures);
-                throw new IllegalStateException("Benchmark interrupted", ie);
-            } catch (ExecutionException ee) {
-                failure = ee.getCause() == null ? ee : ee.getCause();
-                cancelFutures(futures);
-                break;
             }
         }
-
-        if (failure != null) {
-            if (failure instanceof RuntimeException) {
-                throw (RuntimeException) failure;
-            }
-            throw new IllegalStateException("Worker thread failed", failure);
-        }
-
-        double total = service.getBinaryAggregationSum();
-        perturbDataset(dataset);
-        if (Double.isNaN(total)) {
-            throw new IllegalStateException("Aggregation sum produced NaN");
-        }
-        return total;
     }
 
-    private ExecutorService createExecutor() {
+    // New: create executor with an explicit upper bound on threads.
+    private ExecutorService createExecutor(int maxThreads) {
         ThreadFactory threadFactory = new ThreadFactory() {
             private final AtomicInteger counter = new AtomicInteger();
 
@@ -211,34 +236,22 @@ final class BenchmarkRunner implements AutoCloseable {
             }
         };
 
-        // FIXME: choose appropriate executor type and parameters
-        ThreadPoolExecutor cached = new ThreadPoolExecutor(
+        // Use provided maxThreads as the maximumPoolSize so benchmarking can exercise higher
+        // thread counts (e.g. 1,2,4,8,16,32) even on machines with fewer cores.
+        ThreadPoolExecutor boundedCached = new ThreadPoolExecutor(
                 0,
-                Integer.MAX_VALUE,
+                maxThreads,
                 60L,
                 TimeUnit.SECONDS,
                 new SynchronousQueue<>(),
                 threadFactory);
-        cached.allowCoreThreadTimeOut(true);
-        return cached;
+        boundedCached.allowCoreThreadTimeOut(true);
+        return boundedCached;
     }
 
     private void cancelFutures(List<Future<?>> futures) {
         for (Future<?> future : futures) {
             future.cancel(true);
-        }
-    }
-
-    @Override
-    public void close() {
-        executor.shutdown();
-        try {
-            if (!executor.awaitTermination(5, TimeUnit.SECONDS)) {
-                executor.shutdownNow();
-            }
-        } catch (InterruptedException ie) {
-            executor.shutdownNow();
-            Thread.currentThread().interrupt();
         }
     }
 }

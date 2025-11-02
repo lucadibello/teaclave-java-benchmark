@@ -41,32 +41,35 @@ public final class Main {
         Service service = services.next();
 
         try {
+            // load workload settings from environment
             WorkloadSettings workloadSettings = WorkloadSettings.fromEnvironment(sigma);
-            try (BenchmarkRunner runner = new BenchmarkRunner(service)) {
-                // create workload based on settings
-                Workload workload = runner.prepareWorkload(workloadSettings, baselineThreads);
-                System.out.println("Prepared workload on baseline threads: " + baselineThreads);
 
-                // run both scaling benchmarks
-                var weakResults = runner.runWeakScaling(workload, weakThreadCounts);
-                var strongResults = runner.runStrongScaling(workload, strongThreadCounts);
+            // create benchmark runner
+            BenchmarkRunner runner = new BenchmarkRunner(service);
 
-                // create summary
-                BenchmarkSummary summary = new BenchmarkSummary(
-                    workloadSettings,
-                    enclaveType.name(),
-                    workload,
-                    weakThreadCounts,
-                    weakResults,
-                    strongThreadCounts,
-                    strongResults,
-                    baselineThreads
-                );
+            // create workload based on settings
+            Workload workload = runner.prepareWorkload(workloadSettings, baselineThreads);
+            System.out.println("Prepared workload on baseline threads: " + baselineThreads);
 
-                // print it
-                System.out.println("== Benchmark Summary ==");
-                System.out.println(summary.toPrettyString());
-            }
+            // run both scaling benchmarks
+            var weakResults = runner.runWeakScaling(workload, weakThreadCounts);
+            var strongResults = runner.runStrongScaling(workload, strongThreadCounts);
+
+            // create summary
+            BenchmarkSummary summary = new BenchmarkSummary(
+                workloadSettings,
+                enclaveType.name(),
+                workload,
+                weakThreadCounts,
+                weakResults,
+                strongThreadCounts,
+                strongResults,
+                baselineThreads
+            );
+
+            // print it
+            System.out.println("== Benchmark Summary ==");
+            System.out.println(summary.toPrettyString());
         } finally {
             enclave.destroy();
         }
