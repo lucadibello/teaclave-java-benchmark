@@ -9,7 +9,6 @@ import java.util.Random;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
-import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.ThreadPoolExecutor;
@@ -31,7 +30,7 @@ final class BenchmarkRunner implements AutoCloseable {
     public BenchmarkRunner(Service service, Random random) {
         this.service = service;
         this.random = random;
-        this.executor = createExecutor(0);
+        this.executor = createExecutor(); // FIXME: create executor with appropriate number of threads
     }
 
     public Workload prepareWorkload(WorkloadSettings settings, int threadCount) {
@@ -199,7 +198,7 @@ final class BenchmarkRunner implements AutoCloseable {
         return total;
     }
 
-    private ExecutorService createExecutor(int nativeParallelism) {
+    private ExecutorService createExecutor() {
         ThreadFactory threadFactory = new ThreadFactory() {
             private final AtomicInteger counter = new AtomicInteger();
 
@@ -211,26 +210,17 @@ final class BenchmarkRunner implements AutoCloseable {
                 return thread;
             }
         };
-        if (nativeParallelism == Integer.MAX_VALUE) {
-            ThreadPoolExecutor cached = new ThreadPoolExecutor(
-                    0,
-                    Integer.MAX_VALUE,
-                    60L,
-                    TimeUnit.SECONDS,
-                    new SynchronousQueue<>(),
-                    threadFactory);
-            cached.allowCoreThreadTimeOut(true);
-            return cached;
-        }
-        ThreadPoolExecutor fixed = new ThreadPoolExecutor(
-                nativeParallelism,
-                nativeParallelism,
-                0L,
-                TimeUnit.MILLISECONDS,
-                new LinkedBlockingQueue<>(),
+
+        // FIXME: choose appropriate executor type and parameters
+        ThreadPoolExecutor cached = new ThreadPoolExecutor(
+                0,
+                Integer.MAX_VALUE,
+                60L,
+                TimeUnit.SECONDS,
+                new SynchronousQueue<>(),
                 threadFactory);
-        fixed.prestartAllCoreThreads();
-        return fixed;
+        cached.allowCoreThreadTimeOut(true);
+        return cached;
     }
 
     private void cancelFutures(List<Future<?>> futures) {
