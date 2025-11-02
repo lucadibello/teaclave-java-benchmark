@@ -1,14 +1,12 @@
 package com.benchmark.teaclave.enclave;
 
 import com.benchmark.teaclave.common.Service;
-import com.benchmark.teaclave.common.Service;
 import com.benchmark.teaclave.enclave.dp.BinaryAggregationTree;
 import com.google.auto.service.AutoService;
 
 @AutoService(Service.class)
 public class ServiceImpl implements Service {
 
-    private int id_counter = 0;
     private BinaryAggregationTree aggregationTree;
     private int aggregationCapacity;
     private int aggregationIndex;

@@ -8,10 +8,9 @@ import java.util.Random;
 public class BinaryAggregationTree implements Serializable {
     private Double curPrivateSum = 0.00;
     private final ArrayList<Double> tree;
-    private final int height;
+    private static int height = 0;
 
     public BinaryAggregationTree(int n, double sigma) {
-        this.height = (int) Math.ceil(Math.log(n) / Math.log(2));
         tree = initializeTree(n, sigma);
     }
 
@@ -20,7 +19,8 @@ public class BinaryAggregationTree implements Serializable {
     }
 
     private ArrayList<Double> initializeTree(int n, double sigma) {
-        int numLeaves = (int) Math.pow(2, height);
+        height = (int) Math.ceil(Math.log(n) / Math.log(2));  // Height of the tree
+        int numLeaves = (int) Math.pow(2, height);  // Number of leaf nodes
         ArrayList<Double> tree = new ArrayList<>();
         int treeSize = 2 * numLeaves - 1;
         Random rand = new Random();
@@ -45,19 +45,19 @@ public class BinaryAggregationTree implements Serializable {
         }
 
         double sPriv = 0.00;
-        String indexBinaryRepr = Integer.toBinaryString(i + 1);
-        indexBinaryRepr = String.format("%" + (height + 1) + "s", indexBinaryRepr).replace(' ', '0');
+        String indexBinaryRepr = Integer.toBinaryString(i + 1); // numeration from 1 to n
+        indexBinaryRepr = String.format("%" + (height + 1) + "s", indexBinaryRepr).replace(' ', '0');  // Pad with zeros
         String pathBinary = Integer.toBinaryString(i);
         pathBinary = String.format("%" + height + "s", pathBinary).replace(' ', '0');
 
         int nodeIndex = 0;
         for (int j = 0; j < height + 1; j++) {
-            char vertexBit = indexBinaryRepr.charAt(j);
+            char vertexBit = indexBinaryRepr.charAt(j); // determines if we add the node to the privSum
 
             if (vertexBit == '1') {
-                int leftSibling = (nodeIndex % 2 == 0) ? nodeIndex - 1 : nodeIndex;
+                int leftSibling = (nodeIndex % 2 == 0) ? nodeIndex - 1 : nodeIndex; // left sibling or itself
 
-                if (nodeIndex == 0) {
+                if (nodeIndex == 0) { // if current node is the root
                     leftSibling = nodeIndex;
                 }
 
