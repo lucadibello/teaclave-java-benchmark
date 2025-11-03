@@ -29,28 +29,21 @@ plots are generated with `scripts/generate_plots.py`.
 
 ### Strong scaling
 
-Throughput rises from ~10 kops/s with a single client to ~58 kops/s at 16 clients,
-after which it flattens. The 8-client setup achieves a 5x speedup ($\approx$ 63%
-efficiency). Pushing to 32 clients provides no benefit, as SGX scheduling overhead
-dominates once the enclave is oversubscribed.
+Throughput climbs from ~9 kops/s with a single client to roughly 40 kops/s at eight clients, then only inches up (~41 kops/s) at sixteen threads before sliding back to ~35 kops/s at 32 clients. SGX scheduling keeps the enclave from exploiting additional parallelism once we exceed the 8-16 client band.
 
 ![Strong scaling throughput](results/strong_throughput.png)
 
-The speedup and efficiency plots show the same trend: performance scales well up
-to 8 clients, but degrades beyond that as the enclave becomes saturated.
+The speedup curve peaks at ~4.5x with 16 clients (~28% efficiency) and drops afterwards; efficiency already halves beyond eight clients as context switches dominate the oversubscribed enclave.
 
 ![Strong scaling speedup and efficiency](results/strong_speedup_efficiency.png)
 
 ### Weak scaling
 
-Under weak scaling, the system shows clear linear gains. Aggregate throughput
-grows from ~9.7 kops/s with one client to ~1.68 Mops/s at 32 clients.
+Under weak scaling, throughput tracks the client count up to 16 threads: it rises from ~6.6 kops/s with one client to a little over 52 kops/s, then levels off around 51 kops/s once 32 clients arrive and the enclave saturates.
 
 ![Weak scaling throughput](results/weak_throughput.png)
 
-Efficiency peaks above 5x relative to the single-client
-baseline, indicating that the workload benefits significantly from having more
-parallel submissions when the total work increases.
+Scaled speedup tops out near 7.9x at 16 clients. Efficiency remains near 1.0 through eight clients (with a small super-linear blip at two) before tailing off to ~0.24 at 32 clients as larger batches run into the same scheduling limit.
 
 ![Weak scaling speedup and efficiency](results/weak_speedup_efficiency.png)
 
