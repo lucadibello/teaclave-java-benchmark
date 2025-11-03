@@ -8,6 +8,7 @@ import java.util.List;
 import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 final class BenchmarkRunner {
 
@@ -151,60 +152,82 @@ final class BenchmarkRunner {
         service.initBinaryAggregation(dataset.length, sigma);
 
         final int chunkSize = Math.max(1, (dataset.length + effectiveThreads - 1) / effectiveThreads);
-        final List<Future<?>> futures = new ArrayList<>(effectiveThreads);
 
-        System.out.println("Creating executor with " + effectiveThreads + " threads");
-        final ExecutorService localExecutor = createExecutor(effectiveThreads);
-        System.out.println("Done. Sending requests...");
+        System.out.println("Creating " + effectiveThreads + " worker threads");
+        final Thread[] workers = new Thread[effectiveThreads];
+        final AtomicReference<Throwable> failure = new AtomicReference<>(null);
 
         try {
-            // submit tasks
+            // start threads
             for (int t = 0; t < effectiveThreads; t++) {
                 final int start = t * chunkSize;
                 final int end = Math.min(dataset.length, start + chunkSize);
-                if (start >= end) break;
-
+                if (start >= end) {
+                    workers[t] = null;
+                    continue;
+                }
                 final int sliceStart = start;
                 final int sliceEnd = end;
 
-                try {
-                    // futures.add(localExecutor.submit(() -> {
-                    //     for (int idx = sliceStart; idx < sliceEnd; idx++) {
-                    //         service.addToBinaryAggregation(dataset[idx]);
-                    //     }
-                    // }));
-                    for (int idx = sliceStart; idx < sliceEnd; idx++) {
-                        service.addToBinaryAggregation(dataset[idx]);
+                ThreadFactory threadFactory = new ThreadFactory() {
+                    private final AtomicInteger counter = new AtomicInteger();
+                    @Override public Thread newThread(Runnable r) {
+                        Thread th = new Thread(r);
+                        th.setName("benchmark-worker-" + counter.getAndIncrement());
+                        th.setDaemon(false);
+                        return th;
                     }
-                } catch (RejectedExecutionException ree) {
-                    cancelFutures(futures);
-                    shutdownAndAwaitTermination(localExecutor, true);
-                    throw new IllegalStateException("Executor rejected task submission", ree);
-                }
+                };
+                Thread worker = threadFactory.newThread(() -> {
+                    try {
+                        for (int idx = sliceStart; idx < sliceEnd; idx++) {
+                            // bail out early if another worker failed or current thread is interrupted
+                            if (Thread.currentThread().isInterrupted() || failure.get() != null) break;
+                            service.addToBinaryAggregation(dataset[idx]);
+                        }
+                    } catch (Throwable ex) {
+                        // capture the first failure
+                        failure.compareAndSet(null, ex);
+                        // if desired, re-interrupt the thread (best-effort)
+                        Thread.currentThread().interrupt();
+                    }
+                });
+                workers[t] = worker;
+                worker.start();
             }
-
-            Throwable failure = null;
 
             // wait for completion
-            for (Future<?> f : futures) {
-                try {
-                    f.get();
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    cancelFutures(futures);
-                    shutdownAndAwaitTermination(localExecutor, true);
-                    throw new IllegalStateException("Benchmark interrupted", ie);
-                } catch (ExecutionException ee) {
-                    failure = (ee.getCause() != null ? ee.getCause() : ee);
-                    cancelFutures(futures);
-                    shutdownAndAwaitTermination(localExecutor, true);
-                    break;
+            try {
+                for (Thread w : workers) {
+                    if (w == null) continue;
+                    try {
+                        w.join();
+                    } catch (InterruptedException ie) {
+                        // preserve interrupt status and attempt to stop workers
+                        Thread.currentThread().interrupt();
+                        // interrupt remaining workers
+                        for (Thread other : workers) {
+                            if (other != null && other.isAlive()) {
+                                try { other.interrupt(); } catch (RuntimeException ignore) { /* best-effort */ }
+                            }
+                        }
+                        // join them after interrupt
+                        for (Thread other : workers) {
+                            if (other == null) continue;
+                            try { other.join(); } catch (InterruptedException ignore) { /* best-effort */ }
+                        }
+                        throw new IllegalStateException("Benchmark interrupted", ie);
+                    }
                 }
+            } catch (IllegalStateException ise) {
+                throw ise;
             }
 
-            if (failure != null) {
-                if (failure instanceof RuntimeException) throw (RuntimeException) failure;
-                throw new IllegalStateException("Worker thread failed", failure);
+            // check for worker failure
+            Throwable workerFailure = failure.get();
+            if (workerFailure != null) {
+                if (workerFailure instanceof RuntimeException) throw (RuntimeException) workerFailure;
+                throw new IllegalStateException("Worker thread failed", workerFailure);
             }
 
             final double total = service.getBinaryAggregationSum();
@@ -214,57 +237,21 @@ final class BenchmarkRunner {
             }
             return total;
         } finally {
-            // ensure the executor is always torn down and internal queues are purged
-            shutdownAndAwaitTermination(localExecutor, false);
-            futures.clear(); // drop references to tasks/exceptions
-        }
-    }
-
-    /** Create an executor with an explicit upper bound on threads. */
-    private ExecutorService createExecutor(int maxThreads) {
-        ThreadFactory threadFactory = new ThreadFactory() {
-            private final AtomicInteger counter = new AtomicInteger();
-            @Override public Thread newThread(Runnable r) {
-                Thread t = new Thread(r);
-                t.setName("benchmark-worker-" + counter.getAndIncrement());
-                t.setDaemon(false); // enforce clean shutdown rather than relying on daemon exit
-                return t;
-            }
-        };
-
-        ThreadPoolExecutor tpe = new ThreadPoolExecutor(
-                0,                     // core
-                maxThreads,            // max
-                60L, TimeUnit.SECONDS, // keep-alive for idle non-core threads
-                new SynchronousQueue<>(),
-                threadFactory
-        );
-        // Optional: prestart no threads; they’ll be created on demand.
-        return tpe;
-    }
-
-    /** Best-practice shutdown from the ExecutorService Javadoc, plus purge. */
-    private static void shutdownAndAwaitTermination(ExecutorService pool, boolean alreadyShuttingDown) {
-        if (!alreadyShuttingDown) pool.shutdown(); // Disable new tasks
-        try {
-            if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
-                pool.shutdownNow(); // Cancel currently executing tasks
-                if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
-                    System.err.println("Executor did not terminate cleanly");
+            // Ensure all worker threads are not left running; best-effort interruption and join.
+            for (Thread w : workers) {
+                if (w == null) continue;
+                if (w.isAlive()) {
+                    try { w.interrupt(); } catch (RuntimeException ignore) { /* best-effort */ }
                 }
             }
-        } catch (InterruptedException ie) {
-            pool.shutdownNow();
-            Thread.currentThread().interrupt();
-        } finally {
-            if (pool instanceof ThreadPoolExecutor) {
-                ((ThreadPoolExecutor) pool).purge(); // remove cancelled tasks from the queue
+            for (Thread w : workers) {
+                if (w == null) continue;
+                try { w.join(100); } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    // if join is interrupted, continue best-effort cleanup
+                }
             }
+            // drop references
         }
     }
-
-    private static void cancelFutures(List<Future<?>> futures) {
-        for (Future<?> f : futures) {
-            try { f.cancel(true); } catch (RuntimeException ignore) { /* best-effort */ }
-        }
-    }}
+}

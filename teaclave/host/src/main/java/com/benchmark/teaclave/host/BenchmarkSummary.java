@@ -38,7 +38,7 @@ public final class BenchmarkSummary {
                 "    \"sigma\": %.6f,%n    \"dataSize\": %d,%n    \"warmupIterations\": %d,%n    \"measureIterations\": %d,%n    \"weakThreadCounts\": %s,%n    \"strongThreadCounts\": %s,%n",
                 settings.getSigma(), settings.getDataSize(), settings.getWarmupIterations(), settings.getMeasureIterations(),
                 formatIntArray(weakThreadCounts), formatIntArray(strongThreadCounts)));
-        sb.append(String.format(Locale.US, "    \"executionMode\": \"%s\",%n", executionMode));
+        sb.append(String.format(Locale.US, "    \"executionMode\": \"%s\"%n", executionMode));
         sb.append("  },\n");
         sb.append("  \"workload\": {\n");
         sb.append(String.format(Locale.US,
