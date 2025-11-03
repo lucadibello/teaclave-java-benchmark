@@ -39,7 +39,6 @@ public final class BenchmarkSummary {
                 settings.getSigma(), settings.getDataSize(), settings.getWarmupIterations(), settings.getMeasureIterations(),
                 formatIntArray(weakThreadCounts), formatIntArray(strongThreadCounts)));
         sb.append(String.format(Locale.US, "    \"executionMode\": \"%s\",%n", executionMode));
-        sb.append(String.format(Locale.US, "    \"maxNativeThreadsUsed\": %d%n", threadsUsed));
         sb.append("  },\n");
         sb.append("  \"workload\": {\n");
         sb.append(String.format(Locale.US,

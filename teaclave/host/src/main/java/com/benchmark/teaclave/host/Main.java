@@ -43,6 +43,8 @@ public final class Main {
         try {
             // load workload settings from environment
             WorkloadSettings workloadSettings = WorkloadSettings.fromEnvironment(sigma);
+            // print settings
+            System.out.println("Initial workload: " + workloadSettings.getDataSize());
 
             // create benchmark runner
             BenchmarkRunner runner = new BenchmarkRunner(service);
@@ -71,7 +73,12 @@ public final class Main {
             System.out.println("== Benchmark Summary ==");
             System.out.println(summary.toPrettyString());
         } finally {
-            enclave.destroy();
+            try {
+                enclave.destroy();
+            } catch (Exception e) {
+                System.err.println("Failed to destroy enclave: " + e.getMessage());
+                e.printStackTrace(System.err);
+            }
         }
     }
 

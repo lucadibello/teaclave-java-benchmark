@@ -168,11 +168,14 @@ final class BenchmarkRunner {
                 final int sliceEnd = end;
 
                 try {
-                    futures.add(localExecutor.submit(() -> {
-                        for (int idx = sliceStart; idx < sliceEnd; idx++) {
-                            service.addToBinaryAggregation(dataset[idx]);
-                        }
-                    }));
+                    // futures.add(localExecutor.submit(() -> {
+                    //     for (int idx = sliceStart; idx < sliceEnd; idx++) {
+                    //         service.addToBinaryAggregation(dataset[idx]);
+                    //     }
+                    // }));
+                    for (int idx = sliceStart; idx < sliceEnd; idx++) {
+                        service.addToBinaryAggregation(dataset[idx]);
+                    }
                 } catch (RejectedExecutionException ree) {
                     cancelFutures(futures);
                     shutdownAndAwaitTermination(localExecutor, true);

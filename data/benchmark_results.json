@@ -7,32 +7,29 @@
     "weakThreadCounts": [1,2,4,8,16,32],
     "strongThreadCounts": [1,2,4,8,16,32],
     "executionMode": "TEE_SDK",
-    "maxNativeThreadsSupported": 32,
-    "maxNativeThreadsUsed": 32
   },
   "workload": {
     "dataSize": 1024,
     "sigma": 0.500000,
     "warmupIterations": 3,
     "measureIterations": 5,
-    "avgTimeMillis": 118.995,
     "requestedThreads": 1,
     "executedThreads": 1
   },
   "weakScaling": [
-    {"threads": 1, "executedThreads": 1, "dataSize": 1024, "iterations": 5, "avgTimeMillis": 108.073},
-    {"threads": 2, "executedThreads": 2, "dataSize": 2048, "iterations": 5, "avgTimeMillis": 121.267},
-    {"threads": 4, "executedThreads": 4, "dataSize": 4096, "iterations": 5, "avgTimeMillis": 130.753},
-    {"threads": 8, "executedThreads": 8, "dataSize": 8192, "iterations": 5, "avgTimeMillis": 163.752},
-    {"threads": 16, "executedThreads": 16, "dataSize": 16384, "iterations": 5, "avgTimeMillis": 292.309},
-    {"threads": 32, "executedThreads": 32, "dataSize": 32768, "iterations": 5, "avgTimeMillis": 618.707}
+    {"threads": 1, "executedThreads": 1, "dataSize": 1024, "iterations": 5, "avgTimeMillis": 112.653},
+    {"threads": 2, "executedThreads": 2, "dataSize": 2048, "iterations": 5, "avgTimeMillis": 117.403},
+    {"threads": 4, "executedThreads": 4, "dataSize": 4096, "iterations": 5, "avgTimeMillis": 132.088},
+    {"threads": 8, "executedThreads": 8, "dataSize": 8192, "iterations": 5, "avgTimeMillis": 167.975},
+    {"threads": 16, "executedThreads": 16, "dataSize": 16384, "iterations": 5, "avgTimeMillis": 311.073},
+    {"threads": 32, "executedThreads": 32, "dataSize": 32768, "iterations": 5, "avgTimeMillis": 632.599}
   ],
   "strongScaling": [
-    {"threads": 1, "executedThreads": 1, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 104.692},
-    {"threads": 2, "executedThreads": 2, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 58.183},
-    {"threads": 4, "executedThreads": 4, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 30.096},
-    {"threads": 8, "executedThreads": 8, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 18.496},
-    {"threads": 16, "executedThreads": 16, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 19.321},
-    {"threads": 32, "executedThreads": 32, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 18.443}
+    {"threads": 1, "executedThreads": 1, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 103.304},
+    {"threads": 2, "executedThreads": 2, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 55.824},
+    {"threads": 4, "executedThreads": 4, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 32.388},
+    {"threads": 8, "executedThreads": 8, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 19.152},
+    {"threads": 16, "executedThreads": 16, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 18.918},
+    {"threads": 32, "executedThreads": 32, "totalSize": 1024, "iterations": 5, "avgTimeMillis": 19.646}
   ]
 }
