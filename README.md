@@ -54,25 +54,6 @@ parallel submissions when the total work increases.
 
 ![Weak scaling speedup and efficiency](results/weak_speedup_efficiency.png)
 
-### Why the difference?
-
-The Teaclave Java SDK ([Lejacon](https://ieeexplore.ieee.org/document/10172889)) enclave code as native NCC services inside SGX, while the JVM hosts the untrusted logic. Each interaction crosses the JVM–enclave boundary through a JNI-based ECALL that must:
-
-1. serialize the service arguments and state
-2. enter the enclave
-3. run the NCC service
-4. return and deserialize the results
-
-This transition cost is largely fixed and often dominates the actual compute time of each aggregation update (refer to paper for detailed breakdown).
-
-Under **weak scaling**, increasing the number of clients increases *total* work (= more ECALLs, more data). With more work in flight, Lejacon can reuse the same NCC service instance and route repeated operations through the current service context. This effectively groups multiple logical requests into fewer enclave transitions: data stays cached and the marshalling layer becomes more efficient because the service context does not need to be reloaded for each call. As a result, the per-operation cost of the transition falls, and aggregate throughput can grow linearly.
-
-Under **strong scaling**, the total workload is constant. Additional threads only fragment this work into smaller batches (= more ECALLs, less data). Since batch size shrinks, each thread issues more transitions relative to the useful work it performs. Lejacon cannot group these calls, so the fixed ECALL cost becomes dominant. At higher thread counts, all clients contend for the same enclave execution engine, so SGX scheduling and synchronization overhead quickly saturate the enclave. Throughput therefore scales sub-linearly and eventually plateaus.
-
-> For deeper architectural details, see the original Lejacon paper. This is just
-> a summary of how the observed benchmark results relate to the underlying design
-> of the Teaclave Java SDK.
-
 ### Reproducing the figures
 
 ```
