@@ -28,8 +28,7 @@ XATTR_STUB_OBJ := ${ENCLAVE_BASE_DIR}/target/enclave_workspace/xattr_stubs.o
 ${XATTR_STUB_OBJ}: ${XATTR_STUB_SRC}
 	$(CC) -c -fPIC -ffunction-sections -fdata-sections -fvisibility=hidden -o $@ $<
 
-all:
-	$(MAKE) build
+all: build
 
 build: ${XATTR_STUB_OBJ}
 ifeq ($(TEE_SDK), TRUE)
