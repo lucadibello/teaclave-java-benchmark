@@ -86,13 +86,13 @@ Install JDK 11+ and Maven 3.6+ on your machine, then clone the repository and co
 From the repo root:
 
 ```bash
-mvn package
+cd teaclave && mvn clean package -DskipTests -Pnative
 ```
 
 To run tests (mock enclave only):
 
 ```bash
-mvn -pl host test
+cd teaclave && mvn -pl host test
 ```
 
 ## Running Benchmarks
