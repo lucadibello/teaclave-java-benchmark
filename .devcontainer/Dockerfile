@@ -118,7 +118,7 @@ RUN sed -i '/^GRAALVM_HOME=/d' /etc/environment \
 
 # Set OpenJDK 17 as default Java version using update-alternatives
 RUN update-alternatives --set java /usr/lib/jvm/java-17-openjdk-*/bin/java \
-  && update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-*/bin/javac \
+  && update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-*/bin/javac
 
 # Install newer Maven version (to support Java 17)
 RUN set -eux; \
@@ -126,7 +126,7 @@ RUN set -eux; \
   curl -fsSL "$url" -o /tmp/maven.tar.gz; \
   tar -xzf /tmp/maven.tar.gz -C /opt; \
   ln -s /opt/apache-maven-${MAVEN_VERSION}/bin/mvn /usr/local/bin/mvn; \
-  echo "Maven ${MAVEN_VERSION} installed successfully."; \
+  echo "Maven ${MAVEN_VERSION} installed successfully.";
 
 # Install Neovim 0.11 (nightly channel)
 RUN curl -fsSL "https://github.com/neovim/neovim-releases/releases/download/v${NEOVIM_VERSION}/nvim-linux-x86_64.tar.gz" -o /tmp/nvim.tar.gz \
