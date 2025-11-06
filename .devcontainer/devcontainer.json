@@ -25,12 +25,13 @@
         "--publish",
         "127.0.0.1:6666:6666"
     ],
-    "overrideCommand": true,
+    "overrideCommand": false,
+    "workspaceFolder": "/workspaces/teaclave-java-benchmark",
     "forwardPorts": [2222],
     "mounts": ["source=${localEnv:SSH_AUTH_SOCK},target=/ssh-agent,type=bind"],
     "containerEnv": {
         "SSH_AUTH_SOCK": "/ssh-agent",
         "NVIM_LISTEN_ADDRESS": "0.0.0.0:6666"
     },
-    "postCreateCommand": "cd teaclave && mvn -DskipTests install && mvn dependency:go-offline"
+    "postCreateCommand": "sudo passwd dev"
 }
