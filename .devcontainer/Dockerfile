@@ -12,10 +12,13 @@ ARG REMOTE_HOME=/home/${REMOTE_USER}
 ARG GIT_EMAIL=lucadibello@proton.me
 ARG GIT_NAME="Luca Di Bello"
 
+ARG GRAALVM_VERSION=22.2.0
+ARG GRAALVM_ARCH=amd64
+ARG OPENJDK_VERSION=17
 ARG NEOVIM_VERSION=0.11.4
-
 ARG NODE_VERSION=22.20.0
 ARG NODE_ARCH=x64
+ARG MAVEN_VERSION=3.9.11
 
 ENV DEBIAN_FRONTEND=noninteractive \
     NVIM_LISTEN_ADDRESS=127.0.0.1:6666 \
@@ -23,7 +26,9 @@ ENV DEBIAN_FRONTEND=noninteractive \
     REMOTE_USER=${REMOTE_USER} \
     REMOTE_HOME=${REMOTE_HOME} \
     GIT_NAME=${GIT_NAME} \
-    GIT_EMAIL=${GIT_EMAIL}
+    GIT_EMAIL=${GIT_EMAIL} \
+    GRAALVM_HOME=/root/tools/graalvm-ce-java17-${GRAALVM_VERSION} \
+    JAVA_HOME=/root/tools/graalvm-ce-java17-${GRAALVM_VERSION}
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends software-properties-common \
@@ -45,6 +50,8 @@ RUN apt-get update \
         \
         # Shells & terminal
         sudo tmux zsh \
+        # Newer Java version
+        openjdk-${OPENJDK_VERSION}-jdk \
     && rm -rf /var/lib/apt/lists/* \
     && ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
@@ -90,11 +97,37 @@ RUN chown -R "${REMOTE_USER}:${GROUP_NAME}" /root
 RUN mkdir -p /var/run/sshd \
     && ssh-keygen -A \
     && sed -i 's/^#\?Port .*/Port 2222/' /etc/ssh/sshd_config \
-    && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config \
+    && sed -i 's/^#\?PubkeyAuthentication .*/PubkeyAuthentication no/' /etc/ssh/sshd_config \
     && sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config \
     && sed -i 's/^#\?UsePAM .*/UsePAM yes/' /etc/ssh/sshd_config \
     && grep -qxF 'AllowTcpForwarding yes' /etc/ssh/sshd_config || echo 'AllowTcpForwarding yes' >> /etc/ssh/sshd_config \
     && grep -qxF 'X11Forwarding yes' /etc/ssh/sshd_config || echo 'X11Forwarding yes' >> /etc/ssh/sshd_config
+
+# Install newer GraalVM version (Java 17) for native-image support.
+RUN set -eux; \
+  url="https://github.com/graalvm/graalvm-ce-builds/releases/download/vm-${GRAALVM_VERSION}/graalvm-ce-java17-linux-${GRAALVM_ARCH}-${GRAALVM_VERSION}.tar.gz"; \
+  curl -fsSL -o /tmp/graalvm.tgz "$url"; \
+  tar -xzf /tmp/graalvm.tgz -C /root/tools; \
+  /root/tools/graalvm-ce-java17-${GRAALVM_VERSION}/bin/gu install native-image; \
+  ln -s /root/tools/graalvm-ce-java17-${GRAALVM_VERSION}/bin/native-image /usr/local/bin/native-image; \
+  echo "GraalVM ${GRAALVM_VERSION} installed successfully."
+
+# Remove old JAVA_HOME and GRAALVM_HOME from /etc/environment
+RUN sed -i '/^GRAALVM_HOME=/d' /etc/environment \
+  && sed -i '/^JAVA_HOME=/d' /etc/environment
+
+# Set OpenJDK 17 as default Java version using update-alternatives
+RUN update-alternatives --set java /usr/lib/jvm/java-17-openjdk-*/bin/java \
+  && update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-*/bin/javac
+
+# Install newer Maven version (to support Java 17)
+RUN set -eux; \
+  url="https://dlcdn.apache.org/maven/maven-3/${MAVEN_VERSION}/binaries/apache-maven-${MAVEN_VERSION}-bin.tar.gz"; \
+  curl -fsSL "$url" -o /tmp/maven.tar.gz; \
+  tar -xzf /tmp/maven.tar.gz -C /opt; \
+  ln -s /opt/apache-maven-${MAVEN_VERSION}/bin/mvn /usr/local/bin/mvn; \
+  echo "Maven ${MAVEN_VERSION} installed successfully.";
 
 # Install Neovim 0.11 (nightly channel)
 RUN curl -fsSL "https://github.com/neovim/neovim-releases/releases/download/v${NEOVIM_VERSION}/nvim-linux-x86_64.tar.gz" -o /tmp/nvim.tar.gz \
