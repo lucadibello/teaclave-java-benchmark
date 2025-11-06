@@ -90,7 +90,7 @@
                                 <configuration>
                                     <executable>bash</executable>
                                     <arguments>
-                                        <argument>/workspaces/teaclave-storm/tools/javaenclave/build_app/make.sh</argument>
+                                        <argument>/workspaces/teaclave-java-benchmark/tools/javaenclave/build_app/make.sh</argument>
                                         <argument>${project.basedir}</argument>
                                         <argument>${org.apache.teaclave.javasdk.platform}</argument>
                                         <argument>${org.apache.teaclave.javasdk.enclave.privatePem.path}</argument>
